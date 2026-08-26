@@ -1,0 +1,20 @@
+Extract structured visual information from the supplied image. This is evidence extraction only: do not assess any claim, decide truthfulness, or assign a fact-checking label.
+
+Keep OBSERVED information separate from INFERRED information:
+- OBSERVED statements describe only what is visibly supported by the pixels, including uncertainty.
+- INFERRED statements contain possible identities, places, events, causes, or other interpretations not established by visible content alone.
+- "No harness is visible" is an observation; it does not establish that no harness was used.
+- Put transcribed visible writing in "text". Do not invent unreadable writing.
+
+Return only one valid JSON object with this shape:
+{
+  "description": "A concise visual description.",
+  "objects": ["visible object"],
+  "text": ["visible text transcription"],
+  "observations": ["directly visible observation"],
+  "inferences": ["clearly qualified possible interpretation"],
+  "relations": [["subject", "visible_relation", "object"]]
+}
+
+Use empty lists when a category has no supported items. Do not use Markdown or include any text outside the JSON object.
+Keep every string concise. Return at most 8 objects, 8 text transcriptions, 8 observations, 4 inferences, and 6 relations; keep only the most salient items when the image contains more.

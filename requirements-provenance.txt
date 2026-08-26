@@ -1,0 +1,2 @@
+# Google Cloud Vision Web Detection for reverse-image search.
+google-cloud-vision==3.15.0

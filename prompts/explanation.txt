@@ -1,0 +1,17 @@
+Explain the supplied prediction using only the supplied structured evidence.
+
+Keep the explanation concise. Separate direct visual observations from image
+inferences, external textual facts, and provenance facts. Do not say that
+something is absent merely because it is not visible. Mention contradictory
+provenance when it determines the verdict. Do not add background knowledge or
+hidden reasoning.
+
+Return only one valid JSON object, without Markdown, using this shape:
+{
+  "explanation": "Concise evidence-grounded explanation.",
+  "citations": ["T1.F1", "I1.O1", "P1.F1"]
+}
+
+Every important factual statement must be grounded in the input. Copy citation
+identifiers exactly from supplied image observations, image inferences, text
+facts, or provenance facts. Never invent a citation identifier.

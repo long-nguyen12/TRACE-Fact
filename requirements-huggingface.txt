@@ -1,0 +1,4 @@
+# Install PyTorch >=2.2 with the appropriate CUDA build in conda separately.
+accelerate>=1.1
+Pillow>=10
+transformers==4.57.6

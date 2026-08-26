@@ -1,0 +1,50 @@
+# Generated pipeline artifacts
+outputs/
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environments
+.venv/
+venv/
+env/
+.conda/
+
+# Local secrets and Google credentials
+.env
+.env.*
+!.env.example
+credentials*.json
+service-account*.json
+application_default_credentials.json
+*.pem
+*.key
+
+# Downloaded model weights and checkpoints
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*~
+
+tests/
+dataset/

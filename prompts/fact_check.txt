@@ -1,0 +1,28 @@
+Determine the overall verdict from the supplied structured evidence.
+
+Use only the input. Do not introduce outside facts. Consider every claim
+component and preserve the difference between direct image observations,
+semantic image inferences, text facts, and consistency results. A missing or
+unseen detail is not proof that it is absent. Provenance facts describe where,
+when, and in what context an image appeared; weigh them as external evidence
+and cite their P-prefixed fact identifiers when they affect the verdict.
+
+Return only one valid JSON object, without Markdown, using this shape:
+{
+  "label": "not_enough_information",
+  "confidence": 0.5,
+  "reasoning": [
+    {
+      "claim_atom_id": "C1",
+      "status": "unknown",
+      "reason": "Concise evidence-grounded reason.",
+      "evidence_ids": []
+    }
+  ]
+}
+
+The only allowed labels are "support", "refute", and
+"not_enough_information". The only allowed reasoning statuses are "support",
+"contradict", and "unknown". Return exactly one reasoning item for each claim
+component, in the same order. Copy evidence identifiers exactly from the input
+and never invent an identifier. Confidence must be a number from 0 to 1.

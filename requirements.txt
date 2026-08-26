@@ -1,0 +1,4 @@
+# The milestone-one core uses only the Python standard library.
+# Local Hugging Face inference is available through requirements-huggingface.txt.
+# DeepSeek API inference is available through requirements-deepseek.txt.
+# Google Vision image provenance is available through requirements-provenance.txt.

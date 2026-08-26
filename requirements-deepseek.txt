@@ -1,0 +1,2 @@
+# OpenAI-compatible client used by the DeepSeek API backend.
+openai>=1.0
