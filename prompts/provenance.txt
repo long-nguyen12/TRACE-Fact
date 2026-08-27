@@ -6,19 +6,14 @@ knowledge, infer an earliest date from search rank, or treat a search-engine
 label as a verified fact. Prefer original publishers and pages with explicit
 dates or captions.
 
-Return only one valid JSON object, without Markdown, using this shape:
-{
-  "first_seen": "YYYY-MM-DD or empty string",
-  "location": "Explicitly stated location or empty string",
-  "event": "Explicitly stated event or empty string",
-  "people": ["Explicitly named person"],
-  "facts": [
-    {
-      "text": "One concise provenance fact explicitly supported by a page.",
-      "source_ids": ["P1.S1"]
-    }
-  ]
-}
+Return only one valid JSON object, without Markdown, with exactly these fields:
+- "first_seen": an explicitly supported ISO date string, or an empty string.
+- "location": an explicitly stated location string, or an empty string.
+- "event": an explicitly stated event string, or an empty string.
+- "people": an array containing only explicitly named-person strings.
+- "facts": an array of objects. Each object must contain a concise "text"
+  string and a "source_ids" array containing copied IDs of pages that explicitly
+  support that fact.
 
 Return at most 12 facts. Every fact must cite at least one supplied source ID.
 Copy source identifiers exactly. Repeat every nonempty date, location, event,

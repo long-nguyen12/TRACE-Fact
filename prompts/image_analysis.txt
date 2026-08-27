@@ -6,15 +6,14 @@ Keep OBSERVED information separate from INFERRED information:
 - "No harness is visible" is an observation; it does not establish that no harness was used.
 - Put transcribed visible writing in "text". Do not invent unreadable writing.
 
-Return only one valid JSON object with this shape:
-{
-  "description": "A concise visual description.",
-  "objects": ["visible object"],
-  "text": ["visible text transcription"],
-  "observations": ["directly visible observation"],
-  "inferences": ["clearly qualified possible interpretation"],
-  "relations": [["subject", "visible_relation", "object"]]
-}
+Return only one valid JSON object with exactly these fields:
+- "description": a concise visual-description string.
+- "objects": an array of visible-object strings.
+- "text": an array of visible-text transcription strings.
+- "observations": an array of directly visible observation strings.
+- "inferences": an array of clearly qualified interpretation strings.
+- "relations": an array of three-string arrays ordered as subject, visible
+  relation, and object.
 
 Use empty lists when a category has no supported items. Do not use Markdown or include any text outside the JSON object.
 Keep every string concise. Return at most 8 objects, 8 text transcriptions, 8 observations, 4 inferences, and 6 relations; keep only the most salient items when the image contains more.

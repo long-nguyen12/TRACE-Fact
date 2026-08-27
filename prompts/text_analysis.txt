@@ -2,10 +2,9 @@ Extract explicit factual statements and named entities from the supplied evidenc
 
 Use only information stated in the paragraph. Do not add background knowledge, infer unstated facts, assess a claim, decide truthfulness, or assign a fact-checking label.
 
-Return only one valid JSON object with this shape:
-{
-  "facts": ["One factual statement explicitly stated by the evidence."],
-  "entities": ["Named person, organization, place, event, or other specific entity"]
-}
+Return only one valid JSON object with exactly these fields:
+- "facts": an array of strings, one for each explicit factual statement.
+- "entities": an array of strings containing only entities named in the
+  evidence paragraph.
 
 Use empty lists when no facts or entities are present. Do not use Markdown or include any text outside the JSON object.

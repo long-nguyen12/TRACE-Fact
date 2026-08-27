@@ -161,6 +161,8 @@ def _filter_evidence_ids(
     context: str,
     errors: List[str],
 ) -> List[str]:
+    if isinstance(value, str):
+        value = [value]
     if not isinstance(value, list):
         errors.append(f"{context} evidence_ids must be a list.")
         return []
