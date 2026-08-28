@@ -2,7 +2,6 @@
 
 import json
 import math
-from pathlib import Path
 from typing import Any, Dict, List, Sequence, Set, Tuple
 
 from .consistency import (
@@ -16,9 +15,9 @@ from .consistency import (
     _normalize_status,
 )
 from .llm import parse_json_output
+from .prompt import FACT_CHECK_SYSTEM, FACT_CHECK_USER, render_prompt
 
 
-_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "fact_check.txt"
 _LABELS = {"support", "refute", "not_enough_information"}
 _LABEL_ALIASES = {
     "support": "support",
@@ -280,7 +279,6 @@ class FactChecker:
 
     def __init__(self, llm: Any) -> None:
         self.llm = llm
-        self.prompt = _PROMPT_PATH.read_text(encoding="utf-8")
 
     def verify(self, evidence: Dict[str, Any]) -> Dict[str, Any]:
         result: Dict[str, Any] = {
@@ -301,9 +299,32 @@ class FactChecker:
             errors.append("Evidence did not contain a claim or any valid claim atoms.")
             return result
 
-        prompt = (
-            f"{self.prompt.rstrip()}\n\nINPUT:\n"
-            f"{json.dumps(model_input, ensure_ascii=False, indent=2)}"
+        image_evidence = {
+            "observations": model_input["image_observations"],
+            "inferences": model_input["image_inferences"],
+        }
+        provenance_evidence = {
+            "facts": model_input["provenance_facts"],
+            "sources": model_input["provenance_sources"],
+        }
+        prompt = render_prompt(
+            FACT_CHECK_SYSTEM,
+            FACT_CHECK_USER,
+            CLAIM_COMPONENTS_JSON=json.dumps(
+                model_input["claim_components"], ensure_ascii=False, indent=2
+            ),
+            IMAGE_EVIDENCE_JSON=json.dumps(
+                image_evidence, ensure_ascii=False, indent=2
+            ),
+            TEXT_EVIDENCE_JSON=json.dumps(
+                model_input["text_facts"], ensure_ascii=False, indent=2
+            ),
+            PROVENANCE_FACTS_JSON=json.dumps(
+                provenance_evidence, ensure_ascii=False, indent=2
+            ),
+            CONSISTENCY_COMPARISONS_JSON=json.dumps(
+                model_input["consistency"], ensure_ascii=False, indent=2
+            ),
         )
         try:
             raw_output = self.llm.generate(prompt)

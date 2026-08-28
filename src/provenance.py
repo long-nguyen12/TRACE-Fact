@@ -12,9 +12,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.robotparser import RobotFileParser
 
 from .llm import parse_json_output
-
-
-_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "provenance.txt"
+from .prompt import PROVENANCE_SYSTEM, PROVENANCE_USER, render_prompt
 
 
 def _validate_public_url(url: str) -> str:
@@ -336,7 +334,6 @@ class ProvenanceRetriever:
         self.top_k = int(top_k)
         if self.top_k < 1:
             raise ValueError("top_k must be at least 1")
-        self.prompt = _PROMPT_PATH.read_text(encoding="utf-8")
 
     def search_image(
         self,
@@ -423,9 +420,12 @@ class ProvenanceRetriever:
             "search_metadata": result["search_metadata"],
             "pages": usable_sources,
         }
-        prompt = "%s\n\nINPUT:\n%s" % (
-            self.prompt.rstrip(),
-            json.dumps(model_input, ensure_ascii=False, indent=2),
+        prompt = render_prompt(
+            PROVENANCE_SYSTEM,
+            PROVENANCE_USER,
+            PROVENANCE_INPUT_JSON=json.dumps(
+                model_input, ensure_ascii=False, indent=2
+            ),
         )
         try:
             raw_output = self.llm.generate(prompt)

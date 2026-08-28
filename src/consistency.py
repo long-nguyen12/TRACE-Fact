@@ -1,13 +1,12 @@
 """Claim-to-evidence consistency analysis with grounded evidence references."""
 
 import json
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .llm import parse_json_output
+from .prompt import CONSISTENCY_SYSTEM, CONSISTENCY_USER, render_prompt
 
 
-_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "consistency.txt"
 _STATUSES = {"support", "contradict", "unknown"}
 
 
@@ -290,7 +289,6 @@ class ConsistencyChecker:
 
     def __init__(self, llm: Any) -> None:
         self.llm = llm
-        self.prompt = _PROMPT_PATH.read_text(encoding="utf-8")
 
     def compare(
         self,
@@ -314,15 +312,22 @@ class ConsistencyChecker:
             errors.append("Claim analysis did not contain a claim or any valid atoms.")
             return result
 
-        model_input = {
-            "claim_components": atoms,
-            "image_observations": observations,
-            "image_inferences": inferences,
-            "text_facts": facts,
+        image_evidence = {
+            "observations": observations,
+            "inferences": inferences,
         }
-        prompt = (
-            f"{self.prompt.rstrip()}\n\nINPUT:\n"
-            f"{json.dumps(model_input, ensure_ascii=False, indent=2)}"
+        prompt = render_prompt(
+            CONSISTENCY_SYSTEM,
+            CONSISTENCY_USER,
+            CLAIM_COMPONENTS_JSON=json.dumps(
+                atoms, ensure_ascii=False, indent=2
+            ),
+            IMAGE_EVIDENCE_JSON=json.dumps(
+                image_evidence, ensure_ascii=False, indent=2
+            ),
+            TEXT_EVIDENCE_JSON=json.dumps(
+                facts, ensure_ascii=False, indent=2
+            ),
         )
         try:
             raw_output = self.llm.generate(prompt)
@@ -340,14 +345,18 @@ class ConsistencyChecker:
             return result
 
         try:
-            parsed = parse_json_output(raw_output)
+            parsed = parse_json_output(
+                raw_output, allow_top_level_array=True
+            )
         except (TypeError, ValueError) as exc:
             errors.append(
                 f"Model output could not be parsed: {type(exc).__name__}: {exc}"
             )
             parsed = {}
 
-        comparisons = parsed.get("comparisons")
+        comparisons = (
+            parsed if isinstance(parsed, list) else parsed.get("comparisons")
+        )
         if not isinstance(comparisons, list):
             errors.append("Model output field 'comparisons' must be a list.")
             comparisons = []

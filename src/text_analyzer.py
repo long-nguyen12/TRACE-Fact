@@ -1,18 +1,14 @@
 """Extraction of explicit factual statements from text evidence."""
 
-from pathlib import Path
 from typing import Any, Dict, List
 
 from .llm import parse_json_output
-
-
-_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "text_analysis.txt"
+from .prompt import TEXT_ANALYSIS_SYSTEM, TEXT_ANALYSIS_USER, render_prompt
 
 
 class TextAnalyzer:
     def __init__(self, llm: Any) -> None:
         self.llm = llm
-        self.prompt = _PROMPT_PATH.read_text(encoding="utf-8")
 
     def analyze(self, text: str) -> Dict[str, Any]:
         result: Dict[str, Any] = {
@@ -27,7 +23,11 @@ class TextAnalyzer:
             errors.append("Text evidence must be a string.")
             return result
 
-        prompt = f"{self.prompt.rstrip()}\n\nEVIDENCE TEXT TO EXTRACT:\n{text}"
+        prompt = render_prompt(
+            TEXT_ANALYSIS_SYSTEM,
+            TEXT_ANALYSIS_USER,
+            EVIDENCE_TEXT=text,
+        )
         try:
             raw_output = self.llm.generate(prompt)
             result["raw_output"] = raw_output

@@ -4,7 +4,7 @@ import json
 import os
 from typing import Any, Optional
 
-from .llm import parse_json_output
+from .llm import _normalize_messages, parse_json_output
 
 
 _SYSTEM_PROMPT = (
@@ -42,16 +42,19 @@ class DeepSeekLLM:
         self.max_tokens = max_tokens
         self.client: Any = None
 
-    def generate(self, prompt: str) -> str:
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("prompt must be a non-empty string")
+    def generate(self, prompt: Any) -> str:
+        messages = _normalize_messages(prompt)
+        if messages[0]["role"] == "system":
+            messages[0]["content"] = "%s\n\n%s" % (
+                _SYSTEM_PROMPT,
+                messages[0]["content"],
+            )
+        else:
+            messages.insert(0, {"role": "system", "content": _SYSTEM_PROMPT})
         self._load()
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
+            messages=messages,
             response_format={"type": "json_object"},
             max_tokens=self.max_tokens,
             stream=False,

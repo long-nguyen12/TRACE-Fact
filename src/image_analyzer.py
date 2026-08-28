@@ -1,18 +1,14 @@
 """Extraction of visual observations and separate semantic inferences."""
 
-from pathlib import Path
 from typing import Any, Dict, List
 
 from .llm import parse_json_output
-
-
-_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "image_analysis.txt"
+from .prompt import IMAGE_ANALYSIS_SYSTEM, IMAGE_ANALYSIS_USER, render_prompt
 
 
 class ImageAnalyzer:
     def __init__(self, vlm: Any) -> None:
         self.vlm = vlm
-        self.prompt = _PROMPT_PATH.read_text(encoding="utf-8")
 
     def analyze(self, image: Any) -> Dict[str, Any]:
         result: Dict[str, Any] = {
@@ -27,8 +23,9 @@ class ImageAnalyzer:
         }
         errors: List[str] = result["errors"]
 
+        prompt = render_prompt(IMAGE_ANALYSIS_SYSTEM, IMAGE_ANALYSIS_USER)
         try:
-            raw_output = self.vlm.generate(image, self.prompt)
+            raw_output = self.vlm.generate(image, prompt)
             result["raw_output"] = raw_output
         except Exception as exc:
             errors.append(f"Model generation failed: {type(exc).__name__}: {exc}")

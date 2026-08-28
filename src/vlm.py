@@ -3,7 +3,12 @@
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .llm import _move_inputs, _resolve_model_location
+from .llm import (
+    _messages_to_text,
+    _move_inputs,
+    _normalize_messages,
+    _resolve_model_location,
+)
 
 
 class VLM:
@@ -12,7 +17,7 @@ class VLM:
     def __init__(
         self,
         model: Any,
-        generate_fn: Optional[Callable[[Any, str], str]] = None,
+        generate_fn: Optional[Callable[[Any, Any], str]] = None,
         *,
         device_map: Any = "auto",
         dtype: Any = "auto",
@@ -22,6 +27,7 @@ class VLM:
         self.model = str(model).strip()
         if not self.model:
             raise ValueError("A Hugging Face model ID or local path is required.")
+        self.uses_default_generator = generate_fn is None
         self.generate_fn = (
             generate_fn
             if generate_fn is not None
@@ -34,12 +40,18 @@ class VLM:
             )
         )
 
-    def generate(self, image: Any, prompt: str) -> str:
+    def generate(self, image: Any, prompt: Any) -> str:
         if not callable(self.generate_fn):
             raise RuntimeError(
                 f"No generate_fn callable was supplied for VLM model {self.model!r}."
             )
-        output = self.generate_fn(image, prompt)
+        messages = _normalize_messages(prompt)
+        generator_input = (
+            messages
+            if self.uses_default_generator
+            else _messages_to_text(messages)
+        )
+        output = self.generate_fn(image, generator_input)
         if not isinstance(output, str):
             raise TypeError("VLM generate_fn must return a string.")
         return output
@@ -70,7 +82,7 @@ class _HuggingFaceVisionGenerator:
         self.model = None
         self.torch = None
 
-    def __call__(self, image: Any, prompt: str) -> str:
+    def __call__(self, image: Any, prompt: Any) -> str:
         self._load()
         processor = self.processor
         model = self.model
@@ -84,15 +96,16 @@ class _HuggingFaceVisionGenerator:
         else:
             image_content = {"type": "image", "image": image}
 
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    image_content,
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ]
+        messages = []
+        image_added = False
+        for message in _normalize_messages(prompt):
+            content = [{"type": "text", "text": message["content"]}]
+            if message["role"] == "user" and not image_added:
+                content.insert(0, image_content)
+                image_added = True
+            messages.append({"role": message["role"], "content": content})
+        if not image_added:
+            raise ValueError("A vision prompt must contain a user message.")
         inputs = processor.apply_chat_template(
             messages,
             add_generation_prompt=True,

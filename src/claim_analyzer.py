@@ -1,18 +1,14 @@
 """Claim decomposition into a compact, inspectable representation."""
 
-from pathlib import Path
 from typing import Any, Dict, List
 
 from .llm import parse_json_output
-
-
-_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "claim_analysis.txt"
+from .prompt import CLAIM_ANALYSIS_SYSTEM, CLAIM_ANALYSIS_USER, render_prompt
 
 
 class ClaimAnalyzer:
     def __init__(self, llm: Any) -> None:
         self.llm = llm
-        self.prompt = _PROMPT_PATH.read_text(encoding="utf-8")
 
     def analyze(self, claim: str) -> Dict[str, Any]:
         result: Dict[str, Any] = {
@@ -28,7 +24,11 @@ class ClaimAnalyzer:
             errors.append("Claim must be a string.")
             return result
 
-        prompt = f"{self.prompt.rstrip()}\n\nCLAIM TO EXTRACT:\n{claim}"
+        prompt = render_prompt(
+            CLAIM_ANALYSIS_SYSTEM,
+            CLAIM_ANALYSIS_USER,
+            CLAIM_TEXT=claim,
+        )
         try:
             raw_output = self.llm.generate(prompt)
             result["raw_output"] = raw_output

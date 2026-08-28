@@ -1,7 +1,6 @@
 """Generation of concise explanations grounded in supplied evidence identifiers."""
 
 import json
-from pathlib import Path
 from typing import Any, Dict, List, Set
 
 from .fact_checker import (
@@ -11,9 +10,7 @@ from .fact_checker import (
     _normalize_reasoning,
 )
 from .llm import parse_json_output
-
-
-_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "explanation.txt"
+from .prompt import EXPLANATION_SYSTEM, EXPLANATION_USER, render_prompt
 
 
 def _normalize_citations(
@@ -44,7 +41,6 @@ class ExplanationGenerator:
 
     def __init__(self, llm: Any) -> None:
         self.llm = llm
-        self.prompt = _PROMPT_PATH.read_text(encoding="utf-8")
 
     def generate(
         self, evidence: Dict[str, Any], prediction: Dict[str, Any]
@@ -80,9 +76,35 @@ class ExplanationGenerator:
             "reasoning": prediction_reasoning,
         }
         model_input["prediction"] = normalized_prediction
-        prompt = (
-            f"{self.prompt.rstrip()}\n\nINPUT:\n"
-            f"{json.dumps(model_input, ensure_ascii=False, indent=2)}"
+        image_evidence = {
+            "observations": model_input["image_observations"],
+            "inferences": model_input["image_inferences"],
+        }
+        provenance_evidence = {
+            "facts": model_input["provenance_facts"],
+            "sources": model_input["provenance_sources"],
+        }
+        prompt = render_prompt(
+            EXPLANATION_SYSTEM,
+            EXPLANATION_USER,
+            PREDICTION_JSON=json.dumps(
+                normalized_prediction, ensure_ascii=False, indent=2
+            ),
+            CLAIM_COMPONENTS_JSON=json.dumps(
+                model_input["claim_components"], ensure_ascii=False, indent=2
+            ),
+            IMAGE_EVIDENCE_JSON=json.dumps(
+                image_evidence, ensure_ascii=False, indent=2
+            ),
+            TEXT_EVIDENCE_JSON=json.dumps(
+                model_input["text_facts"], ensure_ascii=False, indent=2
+            ),
+            PROVENANCE_FACTS_JSON=json.dumps(
+                provenance_evidence, ensure_ascii=False, indent=2
+            ),
+            CONSISTENCY_COMPARISONS_JSON=json.dumps(
+                model_input["consistency"], ensure_ascii=False, indent=2
+            ),
         )
 
         try:
