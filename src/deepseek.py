@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 from .llm import _normalize_messages, parse_json_output
@@ -11,6 +12,27 @@ _SYSTEM_PROMPT = (
     "Return exactly one valid JSON object and no Markdown or surrounding text. "
     "Follow the JSON shape and requirements in the user prompt."
 )
+
+
+def load_deepseek_api_key(api_key: Optional[str] = None) -> str:
+    """Return an explicit key, an environment key, or a key from project .env."""
+    if api_key is not None:
+        return str(api_key).strip()
+
+    value = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if value:
+        return value
+
+    try:
+        from dotenv import load_dotenv
+    except ImportError as exc:
+        raise RuntimeError(
+            "Reading DEEPSEEK_API_KEY from .env requires python-dotenv. "
+            "Install requirements-deepseek.txt."
+        ) from exc
+
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+    return os.environ.get("DEEPSEEK_API_KEY", "").strip()
 
 
 class DeepSeekLLM:
@@ -27,11 +49,11 @@ class DeepSeekLLM:
         self.model = str(model).strip()
         if not self.model:
             raise ValueError("A DeepSeek model name is required.")
-        self.api_key = str(
-            api_key if api_key is not None else os.environ.get("DEEPSEEK_API_KEY", "")
-        ).strip()
+        self.api_key = load_deepseek_api_key(api_key)
         if not self.api_key:
-            raise ValueError("Set the DEEPSEEK_API_KEY environment variable.")
+            raise ValueError(
+                "Set DEEPSEEK_API_KEY in the project .env file or environment."
+            )
         self.base_url = str(base_url).strip()
         if not self.base_url:
             raise ValueError("A DeepSeek base URL is required.")
@@ -84,4 +106,4 @@ class DeepSeekLLM:
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
 
-__all__ = ["DeepSeekLLM"]
+__all__ = ["DeepSeekLLM", "load_deepseek_api_key"]

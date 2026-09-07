@@ -3,7 +3,6 @@
 import argparse
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -15,7 +14,7 @@ import config  # noqa: E402
 from src.claim_analyzer import ClaimAnalyzer  # noqa: E402
 from src.consistency import ConsistencyChecker  # noqa: E402
 from src.dataset import MochegDataset  # noqa: E402
-from src.deepseek import DeepSeekLLM  # noqa: E402
+from src.deepseek import DeepSeekLLM, load_deepseek_api_key  # noqa: E402
 from src.explanation import ExplanationGenerator  # noqa: E402
 from src.fact_checker import FactChecker  # noqa: E402
 from src.image_analyzer import ImageAnalyzer  # noqa: E402
@@ -42,7 +41,7 @@ def _build_pipeline() -> FactCheckingPipeline:
     if backend == "deepseek":
         llm = DeepSeekLLM(
             config.DEEPSEEK_MODEL,
-            api_key=os.environ.get("DEEPSEEK_API_KEY"),
+            api_key=load_deepseek_api_key(),
             base_url=config.DEEPSEEK_BASE_URL,
             max_tokens=config.DEEPSEEK_MAX_TOKENS,
         )
@@ -127,8 +126,15 @@ def main() -> None:
         parser.error("set LLM_MODEL in config.py to a model ID or local directory")
     if backend == "deepseek" and not str(config.DEEPSEEK_MODEL).strip():
         parser.error("set DEEPSEEK_MODEL in config.py")
-    if backend == "deepseek" and not os.environ.get("DEEPSEEK_API_KEY", "").strip():
-        parser.error("set the DEEPSEEK_API_KEY environment variable")
+    if backend == "deepseek":
+        try:
+            deepseek_api_key = load_deepseek_api_key()
+        except RuntimeError as exc:
+            parser.error(str(exc))
+        if not deepseek_api_key:
+            parser.error(
+                "set DEEPSEEK_API_KEY in the project .env file or environment"
+            )
     if config.USE_IMAGE and not str(config.VLM_MODEL).strip():
         parser.error(
             "set VLM_MODEL in config.py to a model ID or local directory, "
