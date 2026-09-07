@@ -8,14 +8,14 @@ DATA_ROOT = PROJECT_ROOT / "dataset" / "mocheg"
 OUTPUT_ROOT = PROJECT_ROOT / "outputs"
 
 # Text LLM backend: "huggingface" or "deepseek".
-LLM_BACKEND = "deepseek"
+LLM_BACKEND = "huggingface"
 
 # Local Hugging Face model IDs or directories.
 LLM_MODEL = "Qwen/Qwen3-8B"
 VLM_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 HF_DEVICE_MAP = "auto"
 HF_DTYPE = "auto"
-HF_MAX_NEW_TOKENS = 1024
+HF_MAX_NEW_TOKENS = 32768
 HF_LOCAL_FILES_ONLY = False
 
 # DeepSeek uses DEEPSEEK_API_KEY from the environment. The VLM remains local.

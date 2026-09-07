@@ -124,7 +124,7 @@ class _HuggingFaceTextGenerator:
         self.local_files_only = local_files_only
         self.generation_kwargs = {
             "do_sample": False,
-            "max_new_tokens": max_new_tokens,
+            # "max_new_tokens": max_new_tokens,
             "num_beams": 1,
         }
         self.tokenizer = None
