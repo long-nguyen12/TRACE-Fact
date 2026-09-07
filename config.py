@@ -11,8 +11,8 @@ OUTPUT_ROOT = PROJECT_ROOT / "outputs"
 LLM_BACKEND = "huggingface"
 
 # Local Hugging Face model IDs or directories.
-LLM_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
-VLM_MODEL = "Qwen/Qwen3-VL-2B-Instruct"
+LLM_MODEL = "Qwen/Qwen3-8B"
+VLM_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 HF_DEVICE_MAP = "auto"
 HF_DTYPE = "auto"
 HF_MAX_NEW_TOKENS = 1024

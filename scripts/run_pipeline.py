@@ -156,8 +156,6 @@ def main() -> None:
             "explanation": result.get("explanation"),
             "warnings": result.get("warnings", []),
         }
-        if result.get("result_file"):
-            summary["result_file"] = result["result_file"]
         print(json.dumps(summary, ensure_ascii=False))
 
 
