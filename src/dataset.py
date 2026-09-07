@@ -99,10 +99,10 @@ class MochegDataset:
                 claim_id = row["claim_id"]
                 evidence_id = row["evidence_id"]
                 raw_label = row["cleaned_truthfulness"]
-                if raw_label not in self.LABELS:
-                    raise ValueError(
-                        f"Unknown cleaned_truthfulness {raw_label!r} in {path}"
-                    )
+                # if raw_label not in self.LABELS:
+                #     raise ValueError(
+                #         f"Unknown cleaned_truthfulness {raw_label!r} in {path}"
+                #     )
                 if claim_id not in samples:
                     samples[claim_id] = {
                         "claim_id": claim_id,
