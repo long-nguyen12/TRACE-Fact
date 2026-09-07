@@ -69,9 +69,7 @@ class ExplanationGenerator:
             prediction.get("reasoning"), atoms, allowed_ids, errors
         )
         normalized_prediction = {
-            "label": _ground_label(
-                prediction_label, prediction_reasoning, errors
-            ),
+            "label": _ground_label(prediction_label, prediction_reasoning, errors),
             "reasoning": prediction_reasoning,
         }
         model_input["prediction"] = normalized_prediction
@@ -97,11 +95,13 @@ class ExplanationGenerator:
         if parsed is None:
             return result
 
-        explanation = parsed.get("explanation")
+        explanation = parsed.get("user_explanation") or parsed.get("explanation")
         if isinstance(explanation, str) and explanation.strip():
             result["explanation"] = explanation.strip()
         else:
-            errors.append("Model output field 'explanation' must be a non-empty string.")
+            errors.append(
+                "Model output field 'explanation' must be a non-empty string."
+            )
         result["citations"] = _normalize_citations(
             parsed.get("citations"), allowed_ids, errors
         )
