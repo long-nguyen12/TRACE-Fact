@@ -410,6 +410,7 @@ Output requirements:
 - Fields:
   - "explanation": a concise evidence-grounded string.
   - "citations": an array containing only the supplied evidence-ID strings used by the explanation.
+  - "user_explanation": plain-language explanation string for end-users. It must not contain any evidence IDs, citations, or technical jargon.
 - Every important factual statement must be grounded in the input. Copy citation identifiers exactly from supplied image observations, image inferences, text facts, or provenance facts. Never invent a citation identifier.
 - Start the response with "{" and end with "}".
 """
