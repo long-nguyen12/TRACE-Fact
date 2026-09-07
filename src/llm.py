@@ -155,14 +155,16 @@ class _HuggingFaceTextGenerator:
             generated = model.generate(**inputs, **self.generation_kwargs)
         # sequences = getattr(generated, "sequences", generated)
 
+        output_ids = generated[0][len(inputs.input_ids[0]) :].tolist()
         try:
             # rindex finding 151668 (</think>)
             index = len(output_ids) - output_ids[::-1].index(151668)
         except ValueError:
             index = 0
 
-        output_ids = generated[0][len(inputs.input_ids[0]) :].tolist()
-        print(tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip("\n"))
+        print(
+            tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip("\n")
+        )
         return tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip()
 
     def _load(self) -> None:
