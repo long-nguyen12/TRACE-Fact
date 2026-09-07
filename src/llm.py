@@ -153,11 +153,10 @@ class _HuggingFaceTextGenerator:
         input_length = inputs["input_ids"].shape[-1]
         with torch.inference_mode():
             generated = model.generate(**inputs, **self.generation_kwargs)
-            print("Generated:", generated)
-        sequences = getattr(generated, "sequences", generated)
-        return tokenizer.decode(
-            sequences[0][input_length:], skip_special_tokens=True
-        ).strip()
+        # sequences = getattr(generated, "sequences", generated)
+        output_ids = generated[0][len(inputs.input_ids[0]) :].tolist()
+        print(tokenizer.decode(output_ids[0], skip_special_tokens=True).strip("\n"))
+        return tokenizer.decode(output_ids, skip_special_tokens=True).strip()
 
     def _load(self) -> None:
         if self.model is not None:
