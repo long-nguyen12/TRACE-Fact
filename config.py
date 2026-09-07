@@ -34,7 +34,7 @@ PROVENANCE_USER_AGENT = "TRACE-Fact-Provenance/1.0"
 PROVENANCE_RESPECT_ROBOTS = True
 
 # Change this whenever a model, prompt, dtype, or generation setting changes.
-RUN_ID = "qwen2.5-1.5b-qwen3-vl-provenance-v1"
+RUN_ID = "v1"
 
 USE_TEXT = True
 USE_IMAGE = True

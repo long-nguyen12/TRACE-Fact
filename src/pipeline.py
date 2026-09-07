@@ -158,7 +158,6 @@ class FactCheckingPipeline:
             self.output_root,
             self.run_id,
             "runs",
-            self.execution_id,
             split,
             filename,
         )
