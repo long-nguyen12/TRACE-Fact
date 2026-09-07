@@ -58,15 +58,12 @@ class ExplanationGenerator:
             errors.append("Prediction must be a dictionary.")
             return result
 
-        model_input, atoms, allowed_ids, input_errors = _analysis_input(evidence)
+        model_input, allowed_ids, input_errors = _analysis_input(evidence)
         errors.extend(input_errors)
-        if not atoms:
-            errors.append("Evidence did not contain a claim or any valid claim atoms.")
-            return result
 
         prediction_label = _normalize_label(prediction.get("label"), errors)
         prediction_reasoning = _normalize_reasoning(
-            prediction.get("reasoning"), atoms, allowed_ids, errors
+            prediction.get("reasoning"), allowed_ids, errors
         )
         normalized_prediction = {
             "label": _ground_label(prediction_label, prediction_reasoning, errors),
@@ -85,17 +82,17 @@ class ExplanationGenerator:
             EXPLANATION_SYSTEM,
             EXPLANATION_USER,
             PREDICTION_JSON=json_text(normalized_prediction),
-            CLAIM_COMPONENTS_JSON=json_text(model_input["claim_components"]),
+            CLAIM_TEXT=model_input["claim"],
             IMAGE_EVIDENCE_JSON=json_text(image_evidence),
             TEXT_EVIDENCE_JSON=json_text(model_input["text_facts"]),
             PROVENANCE_FACTS_JSON=json_text(provenance_evidence),
-            CONSISTENCY_COMPARISONS_JSON=json_text(model_input["consistency"]),
+            CONSISTENCY_JSON=json_text(model_input["consistency"]),
         )
         parsed = generate_json(result, self.llm.generate, prompt)
         if parsed is None:
             return result
 
-        explanation = parsed.get("user_explanation") or parsed.get("explanation")
+        explanation = parsed.get("explanation")
         if isinstance(explanation, str) and explanation.strip():
             result["explanation"] = explanation.strip()
         else:

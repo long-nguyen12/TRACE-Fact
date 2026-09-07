@@ -1,6 +1,6 @@
-"""Claim-to-evidence consistency analysis with grounded evidence references."""
+"""Compare one complete claim with extracted image and text evidence."""
 
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .model_output import generate_json, json_text
 from .prompt import CONSISTENCY_SYSTEM, CONSISTENCY_USER, render_prompt
@@ -25,26 +25,6 @@ def _container_id(item: Any, prefix: str, index: int) -> str:
     return f"{prefix}{index}"
 
 
-def _normalize_claim_atoms(claim_analysis: Any, claim: str = "") -> List[Dict[str, str]]:
-    analysis = claim_analysis if isinstance(claim_analysis, dict) else {}
-    atoms: List[Dict[str, str]] = []
-    for item in _as_items(analysis.get("atoms")):
-        text: Optional[str] = None
-        if isinstance(item, str):
-            text = item
-        elif isinstance(item, dict) and isinstance(item.get("text"), str):
-            text = item["text"]
-        if isinstance(text, str) and text.strip():
-            atoms.append({"id": f"C{len(atoms) + 1}", "text": text.strip()})
-
-    fallback = claim
-    if not fallback and isinstance(analysis.get("claim"), str):
-        fallback = analysis["claim"]
-    if not atoms and isinstance(fallback, str) and fallback.strip():
-        atoms.append({"id": "C1", "text": fallback.strip()})
-    return atoms
-
-
 def _normalize_leaf_items(
     value: Any,
     container_id: str,
@@ -58,30 +38,23 @@ def _normalize_leaf_items(
         if isinstance(item, str):
             text = item
         elif isinstance(item, dict):
-            if isinstance(item.get("text"), str):
-                text = item["text"]
-            if isinstance(item.get("id"), str) and item["id"].strip():
-                candidate_id = item["id"].strip()
+            text = item.get("text")
+            candidate_id = item.get("id")
 
         if not isinstance(text, str) or not text.strip():
             continue
-
-        fallback_id = f"{container_id}.{marker}{len(leaves) + 1}"
-        expected_prefix = f"{container_id}.{marker}"
-        valid_candidate = bool(
-            candidate_id
-            and candidate_id.startswith(expected_prefix)
-            and candidate_id[len(expected_prefix) :].isdigit()
-        )
-        leaf_id = (
-            candidate_id
-            if valid_candidate and candidate_id not in used_ids
-            else fallback_id
+        expected = f"{container_id}.{marker}"
+        valid_id = bool(
+            isinstance(candidate_id, str)
+            and candidate_id.startswith(expected)
+            and candidate_id[len(expected) :].isdigit()
+            and candidate_id not in used_ids
         )
         suffix = len(leaves) + 1
+        leaf_id = candidate_id if valid_id else f"{expected}{suffix}"
         while leaf_id in used_ids:
             suffix += 1
-            leaf_id = f"{container_id}.{marker}{suffix}"
+            leaf_id = f"{expected}{suffix}"
         used_ids.add(leaf_id)
         leaves.append({"id": leaf_id, "text": text.strip()})
     return leaves
@@ -91,14 +64,15 @@ def _collect_text_facts(text_analysis: Any) -> List[Dict[str, str]]:
     facts: List[Dict[str, str]] = []
     used_ids: Set[str] = set()
     for index, item in enumerate(_as_items(text_analysis), start=1):
-        if not isinstance(item, dict):
-            continue
-        container_id = _container_id(item, "T", index)
-        facts.extend(
-            _normalize_leaf_items(
-                item.get("facts"), container_id, "F", used_ids
+        if isinstance(item, dict):
+            facts.extend(
+                _normalize_leaf_items(
+                    item.get("facts"),
+                    _container_id(item, "T", index),
+                    "F",
+                    used_ids,
+                )
             )
-        )
     return facts
 
 
@@ -111,34 +85,27 @@ def _collect_image_evidence(
     for index, item in enumerate(_as_items(image_analysis), start=1):
         if not isinstance(item, dict):
             continue
-        container_id = _container_id(item, "I", index)
+        evidence_id = _container_id(item, "I", index)
         observations.extend(
             _normalize_leaf_items(
-                item.get("observations"), container_id, "O", used_ids
+                item.get("observations"), evidence_id, "O", used_ids
             )
         )
-        # VLM-transcribed image text is directly observed visual evidence too.
         observations.extend(
-            _normalize_leaf_items(
-                item.get("text"), container_id, "TXT", used_ids
-            )
+            _normalize_leaf_items(item.get("text"), evidence_id, "TXT", used_ids)
         )
         inferences.extend(
             _normalize_leaf_items(
-                item.get("inferences"), container_id, "INF", used_ids
+                item.get("inferences"), evidence_id, "INF", used_ids
             )
         )
     return observations, inferences
 
 
 def _normalize_status(value: Any, context: str, errors: List[str]) -> str:
-    if isinstance(value, str):
-        status = value.strip().lower()
-        if status in _STATUSES:
-            return status
-    errors.append(
-        f"{context} status must be one of: support, contradict, unknown."
-    )
+    if isinstance(value, str) and value.strip().lower() in _STATUSES:
+        return value.strip().lower()
+    errors.append(f"{context} status must be support, contradict, or unknown.")
     return "unknown"
 
 
@@ -154,21 +121,17 @@ def _filter_evidence_ids(
         errors.append(f"{context} evidence_ids must be a list.")
         return []
 
-    result: List[str] = []
+    result = []
     for item in value:
-        if not isinstance(item, str) or not item.strip():
-            errors.append(f"{context} contains a non-string evidence identifier.")
-            continue
-        evidence_id = item.strip()
+        evidence_id = item.strip() if isinstance(item, str) else ""
         if evidence_id not in allowed_ids:
             errors.append(f"{context} references unknown evidence id {evidence_id!r}.")
-            continue
-        if evidence_id not in result:
+        elif evidence_id not in result:
             result.append(evidence_id)
     return result
 
 
-def _unknown_modality(reason: str) -> Dict[str, Any]:
+def _unknown(reason: str) -> Dict[str, Any]:
     return {"status": "unknown", "reason": reason, "evidence_ids": []}
 
 
@@ -176,168 +139,82 @@ def _normalize_modality(
     value: Any,
     allowed_ids: Set[str],
     context: str,
-    no_evidence_reason: str,
     errors: List[str],
 ) -> Dict[str, Any]:
     if not allowed_ids:
-        return _unknown_modality(no_evidence_reason)
+        return _unknown(f"No {context.lower()} evidence was supplied.")
     if not isinstance(value, dict):
         errors.append(f"{context} result must be an object.")
-        return _unknown_modality("No valid consistency result was returned.")
+        return _unknown("No valid consistency result was returned.")
 
     status = _normalize_status(value.get("status"), context, errors)
-    reason_value = value.get("reason")
-    if isinstance(reason_value, str) and reason_value.strip():
-        reason = reason_value.strip()
-    else:
+    reason = value.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
         errors.append(f"{context} reason must be a non-empty string.")
         reason = "No valid reason was returned."
     evidence_ids = _filter_evidence_ids(
         value.get("evidence_ids"), allowed_ids, context, errors
     )
-
     if status in {"support", "contradict"} and not evidence_ids:
-        errors.append(f"{context} {status} status has no valid grounding evidence.")
-        status = "unknown"
-        reason = "The returned status had no valid grounding evidence."
-
-    return {"status": status, "reason": reason, "evidence_ids": evidence_ids}
-
-
-def _comparison_items(value: Any) -> List[Any]:
-    if isinstance(value, dict):
-        return _as_items(value.get("comparisons"))
-    return _as_items(value)
+        errors.append(f"{context} {status} status has no valid evidence.")
+        return _unknown("The returned status had no valid grounding evidence.")
+    return {
+        "status": status,
+        "reason": reason.strip(),
+        "evidence_ids": evidence_ids,
+    }
 
 
-def _normalize_comparisons(
+def _normalize_consistency(
     value: Any,
-    atoms: Sequence[Dict[str, str]],
     image_ids: Set[str],
     text_ids: Set[str],
     errors: List[str],
-    missing_reason: str,
-) -> List[Dict[str, Any]]:
-    by_atom: Dict[str, Dict[str, Any]] = {}
-    valid_atom_ids = {atom["id"] for atom in atoms}
-    for index, item in enumerate(_comparison_items(value)):
-        if not isinstance(item, dict):
-            errors.append(f"Comparison at index {index} must be an object.")
-            continue
-        atom_id = item.get("claim_atom_id")
-        if not isinstance(atom_id, str) or atom_id not in valid_atom_ids:
-            errors.append(f"Comparison at index {index} has an unknown claim_atom_id.")
-            continue
-        if atom_id in by_atom:
-            errors.append(f"Duplicate comparison returned for claim atom {atom_id}.")
-            continue
-        by_atom[atom_id] = item
-
-    records: List[Dict[str, Any]] = []
-    for atom in atoms:
-        item = by_atom.get(atom["id"])
-        if item is None:
-            errors.append(f"No comparison was returned for claim atom {atom['id']}.")
-            image = _unknown_modality(
-                "No image evidence was supplied."
-                if not image_ids
-                else missing_reason
-            )
-            text = _unknown_modality(
-                "No text evidence was supplied." if not text_ids else missing_reason
-            )
-        else:
-            image = _normalize_modality(
-                item.get("image"),
-                image_ids,
-                f"Comparison {atom['id']} image",
-                "No image evidence was supplied.",
-                errors,
-            )
-            text = _normalize_modality(
-                item.get("text"),
-                text_ids,
-                f"Comparison {atom['id']} text",
-                "No text evidence was supplied.",
-                errors,
-            )
-        records.append(
-            {
-                "claim_atom_id": atom["id"],
-                "claim_atom": atom["text"],
-                "image": image,
-                "text": text,
-            }
-        )
-    return records
+) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        errors.append("Consistency result must be an object.")
+        value = {}
+    return {
+        "image": _normalize_modality(value.get("image"), image_ids, "Image", errors),
+        "text": _normalize_modality(value.get("text"), text_ids, "Text", errors),
+    }
 
 
 class ConsistencyChecker:
-    """Compare each claim atom with extracted image and text evidence."""
+    """Compare the complete claim with each evidence modality."""
 
     def __init__(self, llm: Any) -> None:
         self.llm = llm
 
     def compare(
         self,
-        claim_analysis: Dict[str, Any],
+        claim: str,
         image_analysis: Any,
         text_analysis: Any,
     ) -> Dict[str, Any]:
-        atoms = _normalize_claim_atoms(claim_analysis)
         observations, inferences = _collect_image_evidence(image_analysis)
         facts = _collect_text_facts(text_analysis)
         image_ids = {item["id"] for item in observations + inferences}
         text_ids = {item["id"] for item in facts}
-
         result: Dict[str, Any] = {
-            "comparisons": [],
+            "image": _unknown("Consistency analysis was unavailable."),
+            "text": _unknown("Consistency analysis was unavailable."),
             "raw_output": None,
             "errors": [],
         }
         errors: List[str] = result["errors"]
-        if not atoms:
-            errors.append("Claim analysis did not contain a claim or any valid atoms.")
-            return result
-
-        image_evidence = {
-            "observations": observations,
-            "inferences": inferences,
-        }
         prompt = render_prompt(
             CONSISTENCY_SYSTEM,
             CONSISTENCY_USER,
-            CLAIM_COMPONENTS_JSON=json_text(atoms),
-            IMAGE_EVIDENCE_JSON=json_text(image_evidence),
+            CLAIM_TEXT=claim,
+            IMAGE_EVIDENCE_JSON=json_text(
+                {"observations": observations, "inferences": inferences}
+            ),
             TEXT_EVIDENCE_JSON=json_text(facts),
         )
-        parsed = generate_json(
-            result, self.llm.generate, prompt, allow_array=True
-        )
-        if parsed is None:
-            result["comparisons"] = _normalize_comparisons(
-                [],
-                atoms,
-                image_ids,
-                text_ids,
-                errors,
-                "Consistency analysis was unavailable.",
-            )
-            return result
-
-        comparisons = (
-            parsed if isinstance(parsed, list) else parsed.get("comparisons")
-        )
-        if not isinstance(comparisons, list):
-            errors.append("Model output field 'comparisons' must be a list.")
-            comparisons = []
-        result["comparisons"] = _normalize_comparisons(
-            comparisons,
-            atoms,
-            image_ids,
-            text_ids,
-            errors,
-            "No valid consistency result was returned.",
+        parsed = generate_json(result, self.llm.generate, prompt)
+        result.update(
+            _normalize_consistency(parsed, image_ids, text_ids, errors)
         )
         return result
 

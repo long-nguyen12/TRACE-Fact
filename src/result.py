@@ -14,20 +14,14 @@ def build_result(details: Mapping[str, Any]) -> Dict[str, Any]:
     explanation = details.get("explanation", {})
     explanation = explanation if isinstance(explanation, Mapping) else {}
 
-    reasons = []
-    prediction_ids = []
-    reasoning = prediction.get("reasoning", [])
-    reasoning = reasoning if isinstance(reasoning, list) else []
-    for item in reasoning:
-        if not isinstance(item, Mapping):
-            continue
-        reason = str(item.get("reason", "")).strip()
-        if reason and reason not in reasons:
-            reasons.append(reason)
-        for evidence_id in item.get("evidence_ids", []) or []:
-            evidence_id = str(evidence_id).strip()
-            if evidence_id and evidence_id not in prediction_ids:
-                prediction_ids.append(evidence_id)
+    reasoning = prediction.get("reasoning", {})
+    reasoning = reasoning if isinstance(reasoning, Mapping) else {}
+    reason = str(reasoning.get("reason", "")).strip()
+    prediction_ids = [
+        str(item).strip()
+        for item in reasoning.get("evidence_ids", []) or []
+        if str(item).strip()
+    ]
 
     explanation_text = str(explanation.get("explanation", "")).strip()
     citations = [
@@ -40,7 +34,7 @@ def build_result(details: Mapping[str, Any]) -> Dict[str, Any]:
         or error_list(explanation)
         or not set(citations).issubset(prediction_ids)
     ):
-        explanation_text = " ".join(reasons)
+        explanation_text = reason
         citations = prediction_ids
 
     evidence, sources = _cited_evidence(

@@ -1,14 +1,12 @@
 """Transparent orchestration for MOCHEG fact checking."""
 
 import logging
-import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from .result import (
     build_result,
     collect_errors,
-    error_list,
     ground_truth,
     write_json,
 )
@@ -22,7 +20,6 @@ class FactCheckingPipeline:
     _FLAG_NAMES = {
         "use_text",
         "use_image",
-        "use_claim_decomposition",
         "use_consistency",
         "generate_explanation",
         "use_provenance",
@@ -30,13 +27,11 @@ class FactCheckingPipeline:
     _simple_result = staticmethod(build_result)
     _ground_truth = staticmethod(ground_truth)
     _collect_errors = staticmethod(collect_errors)
-    _error_list = staticmethod(error_list)
     _write_json = staticmethod(write_json)
 
     def __init__(
         self,
         dataset: Any,
-        claim_analyzer: Any,
         image_analyzer: Any,
         text_analyzer: Any,
         consistency_checker: Any,
@@ -46,14 +41,12 @@ class FactCheckingPipeline:
         run_id: str = "baseline",
         use_text: bool = True,
         use_image: bool = True,
-        use_claim_decomposition: bool = True,
         use_consistency: bool = True,
         generate_explanation: bool = True,
         use_provenance: bool = False,
         provenance_retriever: Any = None,
     ) -> None:
         self.dataset = dataset
-        self.claim_analyzer = claim_analyzer
         self.image_analyzer = image_analyzer
         self.text_analyzer = text_analyzer
         self.consistency_checker = consistency_checker
@@ -65,7 +58,6 @@ class FactCheckingPipeline:
         self.default_flags = {
             "use_text": use_text,
             "use_image": use_image,
-            "use_claim_decomposition": use_claim_decomposition,
             "use_consistency": use_consistency,
             "generate_explanation": generate_explanation,
             "use_provenance": use_provenance,
@@ -84,16 +76,15 @@ class FactCheckingPipeline:
         ground_truth = self._ground_truth(sample)
 
         LOGGER.info("claim_id=%s stage=pipeline status=start", claim_id)
-        claim_analysis = self._claim_analysis(claim, active["use_claim_decomposition"])
         text_analysis = self._text_analysis(sample, active["use_text"])
         image_analysis = self._image_analysis(sample, active["use_image"])
 
         if active["use_consistency"]:
             consistency = self.consistency_checker.compare(
-                claim_analysis, image_analysis, text_analysis
+                claim, image_analysis, text_analysis
             )
         else:
-            consistency = []
+            consistency = {}
 
         provenance = self._provenance_analysis(
             sample,
@@ -103,7 +94,6 @@ class FactCheckingPipeline:
         model_evidence = self._model_evidence(
             claim_id,
             claim,
-            claim_analysis,
             text_analysis,
             image_analysis,
             consistency,
@@ -128,7 +118,6 @@ class FactCheckingPipeline:
             "claim_id": claim_id,
             "claim": claim,
             "split": sample["split"],
-            "claim_analysis": claim_analysis,
             "text_analysis": text_analysis,
             "image_analysis": image_analysis,
             "consistency": consistency,
@@ -137,7 +126,6 @@ class FactCheckingPipeline:
             "explanation": explanation,
             "ground_truth": ground_truth,
             "errors": self._collect_errors(
-                claim_analysis,
                 text_analysis,
                 image_analysis,
                 consistency,
@@ -177,21 +165,6 @@ class FactCheckingPipeline:
         if active["use_provenance"] and self.provenance_retriever is None:
             raise ValueError("use_provenance=True requires a provenance_retriever")
         return active
-
-    def _claim_analysis(
-        self,
-        claim: str,
-        enabled: bool,
-    ) -> Dict[str, Any]:
-        if not enabled:
-            return {
-                "claim": claim,
-                "atoms": [{"id": "C1", "text": claim}],
-                "entities": [],
-                "errors": [],
-                "decomposition_skipped": True,
-            }
-        return self._canonical_claim(self.claim_analyzer.analyze(claim), claim)
 
     def _text_analysis(
         self,
@@ -269,21 +242,6 @@ class FactCheckingPipeline:
         return zip(sample["images"], sample["image_evidence_ids"])
 
     @classmethod
-    def _canonical_claim(cls, result: Any, claim: str) -> Dict[str, Any]:
-        output = dict(result) if isinstance(result, Mapping) else {}
-        atoms = cls._leaf_records(output.get("atoms", []), "C")
-        if not atoms:
-            atoms = [{"id": "C1", "text": claim}]
-            errors = cls._error_list(output)
-            errors.append("claim_analysis: no valid atoms; used the whole claim")
-            output["errors"] = errors
-        output["claim"] = claim
-        output["atoms"] = atoms
-        output["entities"] = cls._string_list(output.get("entities", []))
-        output.setdefault("errors", [])
-        return output
-
-    @classmethod
     def _canonical_text(
         cls, result: Any, evidence_id: str, source_id: str
     ) -> Dict[str, Any]:
@@ -356,7 +314,6 @@ class FactCheckingPipeline:
     def _model_evidence(
         claim_id: str,
         claim: str,
-        claim_analysis: Mapping[str, Any],
         text_analysis: List[Mapping[str, Any]],
         image_analysis: List[Mapping[str, Any]],
         consistency: Any,
@@ -366,11 +323,6 @@ class FactCheckingPipeline:
         return {
             "claim_id": claim_id,
             "claim": claim,
-            "claim_analysis": {
-                "claim": claim,
-                "atoms": claim_analysis.get("atoms", []),
-                "entities": claim_analysis.get("entities", []),
-            },
             "text_analysis": [
                 {
                     "evidence_id": item.get("evidence_id", ""),

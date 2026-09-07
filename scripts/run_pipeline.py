@@ -11,7 +11,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import config  # noqa: E402
-from src.claim_analyzer import ClaimAnalyzer  # noqa: E402
 from src.consistency import ConsistencyChecker  # noqa: E402
 from src.dataset import MochegDataset  # noqa: E402
 from src.deepseek import DeepSeekLLM, load_deepseek_api_key  # noqa: E402
@@ -98,7 +97,6 @@ def _build_pipeline() -> FactCheckingPipeline:
     dataset = MochegDataset(config.DATA_ROOT)
     return FactCheckingPipeline(
         dataset=dataset,
-        claim_analyzer=ClaimAnalyzer(llm),
         image_analyzer=ImageAnalyzer(vlm) if vlm is not None else None,
         text_analyzer=TextAnalyzer(llm),
         consistency_checker=ConsistencyChecker(llm),
@@ -109,7 +107,6 @@ def _build_pipeline() -> FactCheckingPipeline:
         run_id=config.RUN_ID,
         use_text=config.USE_TEXT,
         use_image=config.USE_IMAGE,
-        use_claim_decomposition=config.USE_CLAIM_DECOMPOSITION,
         use_consistency=config.USE_CONSISTENCY,
         generate_explanation=config.GENERATE_EXPLANATION,
         use_provenance=config.USE_PROVENANCE,

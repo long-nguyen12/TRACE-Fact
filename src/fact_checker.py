@@ -1,7 +1,7 @@
 """Final evidence-grounded fact-checking decision."""
 
 import math
-from typing import Any, Dict, List, Sequence, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 from .consistency import (
     _as_items,
@@ -9,15 +9,15 @@ from .consistency import (
     _collect_text_facts,
     _container_id,
     _filter_evidence_ids,
-    _normalize_claim_atoms,
-    _normalize_comparisons,
+    _normalize_consistency,
     _normalize_status,
+    _unknown,
 )
 from .model_output import generate_json, json_text
 from .prompt import FACT_CHECK_SYSTEM, FACT_CHECK_USER, render_prompt
 
 
-_LABEL_ALIASES = {
+_LABELS = {
     "support": "support",
     "supported": "support",
     "refute": "refute",
@@ -25,108 +25,80 @@ _LABEL_ALIASES = {
     "nei": "not_enough_information",
     "not_enough_information": "not_enough_information",
 }
+
+
 def _normalize_label(value: Any, errors: List[str]) -> str:
     if isinstance(value, str):
-        key = value.strip().lower().replace("-", "_").replace(" ", "_")
-        label = _LABEL_ALIASES.get(key)
+        label = _LABELS.get(value.strip().lower().replace("-", "_").replace(" ", "_"))
         if label:
             return label
-    errors.append(
-        "Prediction label must be one of: support, refute, "
-        "not_enough_information (or the specified supported/refuted/NEI aliases)."
-    )
+    errors.append("Prediction label must be support, refute, or not_enough_information.")
     return "not_enough_information"
 
 
 def _normalize_confidence(value: Any, errors: List[str]) -> Any:
-    if value is None:
-        return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        errors.append("Prediction confidence must be a number from 0 to 1 or null.")
+        errors.append("Prediction confidence must be a number from 0 to 1.")
         return None
     try:
         confidence = float(value)
     except (OverflowError, ValueError):
-        errors.append("Prediction confidence must be a finite number from 0 to 1.")
-        return None
+        confidence = math.nan
     if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
         errors.append("Prediction confidence must be between 0 and 1.")
         return None
     return confidence
 
 
+def _normalize_reasoning(
+    value: Any,
+    allowed_ids: Set[str],
+    errors: List[str],
+) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        errors.append("Model output field 'reasoning' must be an object.")
+        return _unknown("No valid reasoning was returned.")
+
+    status = _normalize_status(value.get("status"), "Reasoning", errors)
+    reason = value.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        errors.append("Reasoning reason must be a non-empty string.")
+        reason = "No valid reason was returned."
+    evidence_ids = _filter_evidence_ids(
+        value.get("evidence_ids"), allowed_ids, "Reasoning", errors
+    )
+    if status in {"support", "contradict"} and not evidence_ids:
+        errors.append(f"Reasoning {status} status has no valid evidence.")
+        return _unknown("The returned status had no valid grounding evidence.")
+    return {
+        "status": status,
+        "reason": reason.strip(),
+        "evidence_ids": evidence_ids,
+    }
+
+
 def _ground_label(
-    label: str, reasoning: Sequence[Dict[str, Any]], errors: List[str]
+    label: str, reasoning: Dict[str, Any], errors: List[str]
 ) -> str:
-    statuses = [item.get("status") for item in reasoning]
-    if label == "support" and (not statuses or any(status != "support" for status in statuses)):
+    status = reasoning.get("status")
+    if label == "support" and status != "support":
         errors.append(
-            "Support verdict requires grounded support reasoning for every claim atom; "
-            "changed verdict to not_enough_information."
+            "Support verdict requires grounded supporting evidence; changed verdict "
+            "to not_enough_information."
         )
         return "not_enough_information"
-    if label == "refute" and "contradict" not in statuses:
+    if label == "refute" and status != "contradict":
         errors.append(
-            "Refute verdict requires at least one grounded contradiction; changed "
-            "verdict to not_enough_information."
+            "Refute verdict requires grounded contradictory evidence; changed verdict "
+            "to not_enough_information."
         )
         return "not_enough_information"
     return label
 
 
-def _analysis_input(evidence: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, str]], Set[str], List[str]]:
-    errors: List[str] = []
-    claim = evidence.get("claim") if isinstance(evidence.get("claim"), str) else ""
-    claim_analysis = evidence.get("claim_analysis")
-    if not isinstance(claim_analysis, dict):
-        claim_analysis = {"claim": claim, "atoms": []}
-    atoms = _normalize_claim_atoms(claim_analysis, claim)
-
-    text_analysis = evidence.get("text_analysis", [])
-    image_analysis = evidence.get("image_analysis", [])
-    facts = _collect_text_facts(text_analysis)
-    observations, inferences = _collect_image_evidence(image_analysis)
-    text_ids = {item["id"] for item in facts}
-    image_ids = {item["id"] for item in observations + inferences}
-    provenance_facts, provenance_sources = _collect_provenance(
-        evidence.get("provenance", [])
-    )
-    provenance_ids = {item["id"] for item in provenance_facts}
-
-    consistency_value = evidence.get("consistency")
-    # ``[]`` is the pipeline's explicit representation for a disabled
-    # consistency stage, not a malformed comparison response.
-    if consistency_value is None or consistency_value == []:
-        comparisons: List[Dict[str, Any]] = []
-    else:
-        comparisons = _normalize_comparisons(
-            consistency_value,
-            atoms,
-            image_ids,
-            text_ids,
-            errors,
-            "No valid consistency result was supplied.",
-        )
-
-    model_input = {
-        "claim": claim or (claim_analysis.get("claim") or ""),
-        "claim_components": atoms,
-        "image_observations": observations,
-        "image_inferences": inferences,
-        "text_facts": facts,
-        "provenance_facts": provenance_facts,
-        "provenance_sources": provenance_sources,
-        "consistency": comparisons,
-    }
-    return (
-        model_input,
-        atoms,
-        image_ids.union(text_ids).union(provenance_ids),
-        errors,
-    )
-
-
-def _collect_provenance(value: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
+def _collect_provenance(
+    value: Any,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
     facts: List[Dict[str, Any]] = []
     sources: List[Dict[str, str]] = []
     used_ids: Set[str] = set()
@@ -139,9 +111,9 @@ def _collect_provenance(value: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str
             if not isinstance(source, dict):
                 continue
             source_id = str(source.get("id", "")).strip()
-            expected = "%s.S" % container_id
-            if not source_id.startswith(expected) or not source_id[len(expected) :].isdigit():
-                source_id = "%s.S%d" % (container_id, source_index)
+            prefix = f"{container_id}.S"
+            if not source_id.startswith(prefix) or not source_id[len(prefix) :].isdigit():
+                source_id = f"{prefix}{source_index}"
             if source_id in source_ids:
                 continue
             source_ids.add(source_id)
@@ -154,117 +126,73 @@ def _collect_provenance(value: Any) -> Tuple[List[Dict[str, Any]], List[Dict[str
                     "caption": str(source.get("caption", "")),
                 }
             )
+
         for fact in _as_items(item.get("facts")):
-            if not isinstance(fact, dict):
-                continue
-            text = str(fact.get("text", "")).strip()
-            if not text:
+            if not isinstance(fact, dict) or not str(fact.get("text", "")).strip():
                 continue
             fact_id = str(fact.get("id", "")).strip()
-            expected = "%s.F" % container_id
-            if (
-                not fact_id.startswith(expected)
-                or not fact_id[len(expected) :].isdigit()
-                or fact_id in used_ids
-            ):
-                fact_id = "%s.F1" % container_id
-            suffix = 1
+            prefix = f"{container_id}.F"
+            suffix = len(facts) + 1
+            if not fact_id.startswith(prefix) or not fact_id[len(prefix) :].isdigit():
+                fact_id = f"{prefix}{suffix}"
             while fact_id in used_ids:
                 suffix += 1
-                fact_id = "%s.F%d" % (container_id, suffix)
-            valid_source_ids = []
-            for source_id in _as_items(fact.get("source_ids")):
-                source_id = str(source_id).strip()
-                if source_id in source_ids and source_id not in valid_source_ids:
-                    valid_source_ids.append(source_id)
-            if not valid_source_ids:
+                fact_id = f"{prefix}{suffix}"
+            valid_sources = [
+                source_id
+                for source_id in _as_items(fact.get("source_ids"))
+                if source_id in source_ids
+            ]
+            if not valid_sources:
                 continue
             used_ids.add(fact_id)
             facts.append(
                 {
                     "id": fact_id,
-                    "text": text,
-                    "source_ids": valid_source_ids,
+                    "text": str(fact["text"]).strip(),
+                    "source_ids": list(dict.fromkeys(valid_sources)),
                 }
             )
     return facts, sources
 
 
-def _normalize_reasoning(
-    value: Any,
-    atoms: Sequence[Dict[str, str]],
-    allowed_ids: Set[str],
-    errors: List[str],
-) -> List[Dict[str, Any]]:
-    by_atom: Dict[str, Dict[str, Any]] = {}
-    valid_atom_ids = {atom["id"] for atom in atoms}
-    if not isinstance(value, list):
-        errors.append("Model output field 'reasoning' must be a list.")
-        value = []
-
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            errors.append(f"Reasoning item at index {index} must be an object.")
-            continue
-        atom_id = item.get("claim_atom_id")
-        if not isinstance(atom_id, str) or atom_id not in valid_atom_ids:
-            errors.append(f"Reasoning item at index {index} has an unknown claim_atom_id.")
-            continue
-        if atom_id in by_atom:
-            errors.append(f"Duplicate reasoning returned for claim atom {atom_id}.")
-            continue
-        by_atom[atom_id] = item
-
-    reasoning: List[Dict[str, Any]] = []
-    for atom in atoms:
-        item = by_atom.get(atom["id"])
-        if item is None:
-            errors.append(f"No reasoning was returned for claim atom {atom['id']}.")
-            reasoning.append(
-                {
-                    "claim_atom_id": atom["id"],
-                    "status": "unknown",
-                    "reason": "No valid reasoning was returned.",
-                    "evidence_ids": [],
-                }
-            )
-            continue
-
-        status = _normalize_status(
-            item.get("status"), f"Reasoning {atom['id']}", errors
+def _analysis_input(
+    evidence: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Set[str], List[str]]:
+    errors: List[str] = []
+    facts = _collect_text_facts(evidence.get("text_analysis", []))
+    observations, inferences = _collect_image_evidence(
+        evidence.get("image_analysis", [])
+    )
+    provenance_facts, provenance_sources = _collect_provenance(
+        evidence.get("provenance", [])
+    )
+    image_ids = {item["id"] for item in observations + inferences}
+    text_ids = {item["id"] for item in facts}
+    consistency = evidence.get("consistency")
+    if consistency:
+        consistency = _normalize_consistency(
+            consistency, image_ids, text_ids, errors
         )
-        reason_value = item.get("reason")
-        if isinstance(reason_value, str) and reason_value.strip():
-            reason = reason_value.strip()
-        else:
-            errors.append(f"Reasoning {atom['id']} reason must be a non-empty string.")
-            reason = "No valid reason was returned."
-        evidence_ids = _filter_evidence_ids(
-            item.get("evidence_ids"),
-            allowed_ids,
-            f"Reasoning {atom['id']}",
-            errors,
-        )
-        if status in {"support", "contradict"} and not evidence_ids:
-            errors.append(
-                f"Reasoning {atom['id']} {status} status has no valid grounding evidence."
-            )
-            status = "unknown"
-            reason = "The returned status had no valid grounding evidence."
-
-        reasoning.append(
-            {
-                "claim_atom_id": atom["id"],
-                "status": status,
-                "reason": reason,
-                "evidence_ids": evidence_ids,
-            }
-        )
-    return reasoning
+    else:
+        consistency = {}
+    model_input = {
+        "claim": evidence["claim"],
+        "image_observations": observations,
+        "image_inferences": inferences,
+        "text_facts": facts,
+        "provenance_facts": provenance_facts,
+        "provenance_sources": provenance_sources,
+        "consistency": consistency,
+    }
+    allowed_ids = image_ids | text_ids | {
+        item["id"] for item in provenance_facts
+    }
+    return model_input, allowed_ids, errors
 
 
 class FactChecker:
-    """Choose one normalized verdict using only sanitized structured evidence."""
+    """Choose one verdict using only sanitized structured evidence."""
 
     def __init__(self, llm: Any) -> None:
         self.llm = llm
@@ -273,57 +201,48 @@ class FactChecker:
         result: Dict[str, Any] = {
             "label": "not_enough_information",
             "confidence": 0.0,
-            "reasoning": [],
+            "reasoning": _unknown("No valid reasoning was returned."),
             "raw_output": None,
             "errors": [],
         }
         errors: List[str] = result["errors"]
-        if not isinstance(evidence, dict):
-            errors.append("Evidence must be a dictionary.")
-            return result
-
-        model_input, atoms, allowed_ids, input_errors = _analysis_input(evidence)
+        model_input, allowed_ids, input_errors = _analysis_input(evidence)
         errors.extend(input_errors)
-        if not atoms:
-            errors.append("Evidence did not contain a claim or any valid claim atoms.")
-            return result
-
-        image_evidence = {
-            "observations": model_input["image_observations"],
-            "inferences": model_input["image_inferences"],
-        }
-        provenance_evidence = {
-            "facts": model_input["provenance_facts"],
-            "sources": model_input["provenance_sources"],
-        }
         prompt = render_prompt(
             FACT_CHECK_SYSTEM,
             FACT_CHECK_USER,
-            CLAIM_COMPONENTS_JSON=json_text(model_input["claim_components"]),
-            IMAGE_EVIDENCE_JSON=json_text(image_evidence),
+            CLAIM_TEXT=model_input["claim"],
+            IMAGE_EVIDENCE_JSON=json_text(
+                {
+                    "observations": model_input["image_observations"],
+                    "inferences": model_input["image_inferences"],
+                }
+            ),
             TEXT_EVIDENCE_JSON=json_text(model_input["text_facts"]),
-            PROVENANCE_FACTS_JSON=json_text(provenance_evidence),
-            CONSISTENCY_COMPARISONS_JSON=json_text(model_input["consistency"]),
+            PROVENANCE_FACTS_JSON=json_text(
+                {
+                    "facts": model_input["provenance_facts"],
+                    "sources": model_input["provenance_sources"],
+                }
+            ),
+            CONSISTENCY_JSON=json_text(model_input["consistency"]),
         )
         parsed = generate_json(result, self.llm.generate, prompt)
         if parsed is None:
-            result["reasoning"] = _normalize_reasoning([], atoms, allowed_ids, errors)
             return result
 
-        label_error_count = len(errors)
-        normalized_label = _normalize_label(parsed.get("label"), errors)
-        label_was_valid = len(errors) == label_error_count
-        result["label"] = normalized_label
+        before_label = len(errors)
+        label = _normalize_label(parsed.get("label"), errors)
+        label_is_valid = len(errors) == before_label
+        reasoning = _normalize_reasoning(
+            parsed.get("reasoning"), allowed_ids, errors
+        )
+        result["label"] = _ground_label(label, reasoning, errors)
         result["confidence"] = _normalize_confidence(
             parsed.get("confidence"), errors
         )
-        result["reasoning"] = _normalize_reasoning(
-            parsed.get("reasoning"), atoms, allowed_ids, errors
-        )
-        result["label"] = _ground_label(
-            normalized_label, result["reasoning"], errors
-        )
-        if not label_was_valid or result["label"] != normalized_label:
+        result["reasoning"] = reasoning
+        if not label_is_valid or result["label"] != label:
             result["confidence"] = None
         return result
 
