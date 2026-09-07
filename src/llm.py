@@ -142,9 +142,10 @@ class _HuggingFaceTextGenerator:
             inputs = tokenizer.apply_chat_template(
                 messages,
                 add_generation_prompt=True,
-                tokenize=True,
-                return_dict=True,
-                return_tensors="pt",
+                tokenize=False,
+                # return_dict=True,
+                # return_tensors="pt",
+                enable_thinking=False
             )
         else:
             inputs = tokenizer(_messages_to_text(messages), return_tensors="pt")
