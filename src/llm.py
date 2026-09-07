@@ -30,8 +30,7 @@ def _normalize_messages(prompt: Any) -> List[Dict[str, str]]:
             raise ValueError("Prompt message at index %d has an invalid role." % index)
         if not isinstance(content, str) or not content.strip():
             raise ValueError(
-                "Prompt message at index %d must have non-empty text content."
-                % index
+                "Prompt message at index %d must have non-empty text content." % index
             )
         messages.append({"role": role, "content": content})
     return messages
@@ -100,9 +99,7 @@ class LLM:
     def generate(self, prompt: Any) -> str:
         messages = _normalize_messages(prompt)
         generator_input = (
-            messages
-            if self.uses_default_generator
-            else _messages_to_text(messages)
+            messages if self.uses_default_generator else _messages_to_text(messages)
         )
         output = self.generate_fn(generator_input)
         if not isinstance(output, str):
@@ -150,9 +147,7 @@ class _HuggingFaceTextGenerator:
                 return_tensors="pt",
             )
         else:
-            inputs = tokenizer(
-                _messages_to_text(messages), return_tensors="pt"
-            )
+            inputs = tokenizer(_messages_to_text(messages), return_tensors="pt")
 
         inputs = _move_inputs(inputs, model)
         input_length = inputs["input_ids"].shape[-1]

@@ -7,7 +7,6 @@ from typing import Any, Optional
 
 from .llm import _normalize_messages, parse_json_output
 
-
 _SYSTEM_PROMPT = (
     "Return exactly one valid JSON object and no Markdown or surrounding text. "
     "Follow the JSON shape and requirements in the user prompt."
@@ -81,44 +80,37 @@ class DeepSeekLLM:
             messages.insert(0, {"role": "system", "content": _SYSTEM_PROMPT})
         self._load()
         finish_reason = None
-        for attempt in range(2):
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                # max_tokens=self.max_tokens,
-                stream=False,
-            )
-            try:
-                choice = response.choices[0]
-                content = choice.message.content
-                finish_reason = getattr(choice, "finish_reason", None)
-            except (AttributeError, IndexError, TypeError) as exc:
-                raise RuntimeError(
-                    "DeepSeek returned an unexpected response shape."
-                ) from exc
-
-            if finish_reason == "length":
-                raise RuntimeError(
-                    "DeepSeek JSON output was truncated. Increase "
-                    "DEEPSEEK_MAX_TOKENS."
-                )
-            if isinstance(content, str) and content.strip():
-                try:
-                    parsed = parse_json_output(content)
-                except (TypeError, ValueError) as exc:
-                    raise RuntimeError(
-                        "DeepSeek did not return a valid JSON object."
-                    ) from exc
-                return json.dumps(parsed, ensure_ascii=False)
-
-            if attempt == 0:
-                messages = [dict(message) for message in messages]
-                messages[0]["content"] += "\n\n" + _EMPTY_RESPONSE_RETRY
-
-        detail = (
-            " (finish_reason=%s)" % finish_reason if finish_reason else ""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            response_format={"type": "json_object"},
+            # max_tokens=self.max_tokens,
+            stream=False,
         )
+        try:
+            choice = response.choices[0]
+            content = choice.message.content
+            print(f"DeepSeek response content: {content}")
+            finish_reason = getattr(choice, "finish_reason", None)
+        except (AttributeError, IndexError, TypeError) as exc:
+            raise RuntimeError(
+                "DeepSeek returned an unexpected response shape."
+            ) from exc
+
+        if finish_reason == "length":
+            raise RuntimeError(
+                "DeepSeek JSON output was truncated. Increase " "DEEPSEEK_MAX_TOKENS."
+            )
+        if isinstance(content, str) and content.strip():
+            try:
+                parsed = parse_json_output(content)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    "DeepSeek did not return a valid JSON object."
+                ) from exc
+            return json.dumps(parsed, ensure_ascii=False)
+
+        detail = " (finish_reason=%s)" % finish_reason if finish_reason else ""
         raise RuntimeError("DeepSeek returned empty JSON content%s." % detail)
 
     def _load(self) -> None:
