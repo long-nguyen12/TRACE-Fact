@@ -10,7 +10,6 @@ from .result import (
     collect_errors,
     error_list,
     ground_truth,
-    safe_name,
     write_json,
 )
 
@@ -33,7 +32,6 @@ class FactCheckingPipeline:
     _collect_errors = staticmethod(collect_errors)
     _error_list = staticmethod(error_list)
     _write_json = staticmethod(write_json)
-    _safe_name = staticmethod(safe_name)
 
     def __init__(
         self,
@@ -63,7 +61,7 @@ class FactCheckingPipeline:
         self.explanation_generator = explanation_generator
         self.provenance_retriever = provenance_retriever
         self.output_root = Path(output_root)
-        self.run_id = self._safe_name(run_id)
+        self.run_id = run_id
         self.default_flags = {
             "use_text": use_text,
             "use_image": use_image,
@@ -82,7 +80,7 @@ class FactCheckingPipeline:
         claim_id = str(sample["claim_id"])
         claim = sample["claim"]
         active = self._resolve_flags(flags)
-        split = self._safe_name(sample["split"])
+        split = sample["split"]
         ground_truth = self._ground_truth(sample)
 
         LOGGER.info("claim_id=%s stage=pipeline status=start", claim_id)
@@ -149,9 +147,8 @@ class FactCheckingPipeline:
             ),
         }
         result = self._simple_result(details)
-        filename = (
-            self._safe_name("%s__%s" % (claim_id, uuid.uuid4().hex[:8])) + ".json"
-        )
+
+        filename = f"{claim_id}.json"
         result_path = Path(
             self.output_root,
             self.run_id,

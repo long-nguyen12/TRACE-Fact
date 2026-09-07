@@ -199,27 +199,3 @@ def write_json(path: Path, value: Any) -> None:
         json.dump(value, handle, ensure_ascii=True, indent=2)
         handle.write("\n")
     os.replace(str(temporary), str(path))
-
-
-def safe_name(value: str) -> str:
-    original = value.strip()
-    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", original) or "unnamed"
-    needs_digest = cleaned != original or original != original.casefold()
-    if cleaned in {".", ".."}:
-        cleaned = "dot"
-        needs_digest = True
-    if cleaned.endswith("."):
-        cleaned = cleaned.rstrip(".") or "dot"
-        needs_digest = True
-    reserved = {"con", "prn", "aux", "nul"}
-    reserved.update("com%d" % number for number in range(1, 10))
-    reserved.update("lpt%d" % number for number in range(1, 10))
-    if cleaned.split(".", 1)[0].casefold() in reserved:
-        cleaned = "_" + cleaned
-        needs_digest = True
-    if len(cleaned) > 96:
-        needs_digest = True
-    if needs_digest:
-        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
-        cleaned = cleaned[:80] + "__" + digest
-    return cleaned
