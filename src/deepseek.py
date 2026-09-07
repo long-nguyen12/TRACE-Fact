@@ -86,7 +86,7 @@ class DeepSeekLLM:
                 model=self.model,
                 messages=messages,
                 response_format={"type": "json_object"},
-                max_tokens=self.max_tokens,
+                # max_tokens=self.max_tokens,
                 stream=False,
             )
             try:
