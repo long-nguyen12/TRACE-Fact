@@ -1,6 +1,5 @@
 """Final evidence-grounded fact-checking decision."""
 
-import json
 import math
 from typing import Any, Dict, List, Sequence, Set, Tuple
 
@@ -14,11 +13,10 @@ from .consistency import (
     _normalize_comparisons,
     _normalize_status,
 )
-from .llm import parse_json_output
+from .model_output import generate_json, json_text
 from .prompt import FACT_CHECK_SYSTEM, FACT_CHECK_USER, render_prompt
 
 
-_LABELS = {"support", "refute", "not_enough_information"}
 _LABEL_ALIASES = {
     "support": "support",
     "supported": "support",
@@ -27,20 +25,11 @@ _LABEL_ALIASES = {
     "nei": "not_enough_information",
     "not_enough_information": "not_enough_information",
 }
-
-
-def _first_present(mapping: Dict[str, Any], names: Sequence[str]) -> Any:
-    for name in names:
-        if name in mapping:
-            return mapping[name]
-    return []
-
-
 def _normalize_label(value: Any, errors: List[str]) -> str:
     if isinstance(value, str):
         key = value.strip().lower().replace("-", "_").replace(" ", "_")
         label = _LABEL_ALIASES.get(key)
-        if label in _LABELS:
+        if label:
             return label
     errors.append(
         "Prediction label must be one of: support, refute, "
@@ -49,20 +38,20 @@ def _normalize_label(value: Any, errors: List[str]) -> str:
     return "not_enough_information"
 
 
-def _normalize_confidence(value: Any, errors: List[str], fallback: Any = None) -> Any:
+def _normalize_confidence(value: Any, errors: List[str]) -> Any:
     if value is None:
-        return fallback
+        return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         errors.append("Prediction confidence must be a number from 0 to 1 or null.")
-        return fallback
+        return None
     try:
         confidence = float(value)
     except (OverflowError, ValueError):
         errors.append("Prediction confidence must be a finite number from 0 to 1.")
-        return fallback
+        return None
     if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
         errors.append("Prediction confidence must be between 0 and 1.")
-        return fallback
+        return None
     return confidence
 
 
@@ -93,8 +82,8 @@ def _analysis_input(evidence: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict
         claim_analysis = {"claim": claim, "atoms": []}
     atoms = _normalize_claim_atoms(claim_analysis, claim)
 
-    text_analysis = _first_present(evidence, ("text_analysis", "texts"))
-    image_analysis = _first_present(evidence, ("image_analysis", "images"))
+    text_analysis = evidence.get("text_analysis", [])
+    image_analysis = evidence.get("image_analysis", [])
     facts = _collect_text_facts(text_analysis)
     observations, inferences = _collect_image_evidence(image_analysis)
     text_ids = {item["id"] for item in facts}
@@ -310,36 +299,14 @@ class FactChecker:
         prompt = render_prompt(
             FACT_CHECK_SYSTEM,
             FACT_CHECK_USER,
-            CLAIM_COMPONENTS_JSON=json.dumps(
-                model_input["claim_components"], ensure_ascii=False, indent=2
-            ),
-            IMAGE_EVIDENCE_JSON=json.dumps(
-                image_evidence, ensure_ascii=False, indent=2
-            ),
-            TEXT_EVIDENCE_JSON=json.dumps(
-                model_input["text_facts"], ensure_ascii=False, indent=2
-            ),
-            PROVENANCE_FACTS_JSON=json.dumps(
-                provenance_evidence, ensure_ascii=False, indent=2
-            ),
-            CONSISTENCY_COMPARISONS_JSON=json.dumps(
-                model_input["consistency"], ensure_ascii=False, indent=2
-            ),
+            CLAIM_COMPONENTS_JSON=json_text(model_input["claim_components"]),
+            IMAGE_EVIDENCE_JSON=json_text(image_evidence),
+            TEXT_EVIDENCE_JSON=json_text(model_input["text_facts"]),
+            PROVENANCE_FACTS_JSON=json_text(provenance_evidence),
+            CONSISTENCY_COMPARISONS_JSON=json_text(model_input["consistency"]),
         )
-        try:
-            raw_output = self.llm.generate(prompt)
-            result["raw_output"] = raw_output
-        except Exception as exc:
-            errors.append(f"Model generation failed: {type(exc).__name__}: {exc}")
-            result["reasoning"] = _normalize_reasoning([], atoms, allowed_ids, errors)
-            return result
-
-        try:
-            parsed = parse_json_output(raw_output)
-        except (TypeError, ValueError) as exc:
-            errors.append(
-                f"Model output could not be parsed: {type(exc).__name__}: {exc}"
-            )
+        parsed = generate_json(result, self.llm.generate, prompt)
+        if parsed is None:
             result["reasoning"] = _normalize_reasoning([], atoms, allowed_ids, errors)
             return result
 

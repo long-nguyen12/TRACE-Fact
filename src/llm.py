@@ -80,9 +80,10 @@ class LLM:
         local_files_only: bool = False,
     ) -> None:
         self.model = str(model).strip()
-        print(f"LLM model: {self.model}")
         if not self.model:
             raise ValueError("A Hugging Face model ID or local path is required.")
+        if generate_fn is not None and not callable(generate_fn):
+            raise TypeError("generate_fn must be callable.")
         self.uses_default_generator = generate_fn is None
         self.generate_fn = (
             generate_fn
@@ -97,10 +98,6 @@ class LLM:
         )
 
     def generate(self, prompt: Any) -> str:
-        if not callable(self.generate_fn):
-            raise RuntimeError(
-                f"No generate_fn callable was supplied for LLM model {self.model!r}."
-            )
         messages = _normalize_messages(prompt)
         generator_input = (
             messages
@@ -132,9 +129,6 @@ class _HuggingFaceTextGenerator:
             "do_sample": False,
             "max_new_tokens": max_new_tokens,
             "num_beams": 1,
-            "temperature": 0.0,
-            "top_p": 1.0,
-            "repetition_penalty": 1.0,
         }
         self.tokenizer = None
         self.model = None
@@ -170,9 +164,7 @@ class _HuggingFaceTextGenerator:
         ).strip()
 
     def _load(self) -> None:
-        print(f"Loading Hugging Face model {self.model_name}...")
         if self.model is not None:
-            print("Model already loaded; skipping.")
             return
         try:
             import torch
@@ -185,7 +177,6 @@ class _HuggingFaceTextGenerator:
             ) from exc
 
         model_location = _resolve_model_location(self.model_name, self.local_files_only)
-        print(f"Loading Hugging Face model from {model_location}")
         load_kwargs = {}
         if self.local_files_only:
             load_kwargs["local_files_only"] = True

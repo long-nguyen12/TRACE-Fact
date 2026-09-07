@@ -27,6 +27,8 @@ class VLM:
         self.model = str(model).strip()
         if not self.model:
             raise ValueError("A Hugging Face model ID or local path is required.")
+        if generate_fn is not None and not callable(generate_fn):
+            raise TypeError("generate_fn must be callable.")
         self.uses_default_generator = generate_fn is None
         self.generate_fn = (
             generate_fn
@@ -41,10 +43,6 @@ class VLM:
         )
 
     def generate(self, image: Any, prompt: Any) -> str:
-        if not callable(self.generate_fn):
-            raise RuntimeError(
-                f"No generate_fn callable was supplied for VLM model {self.model!r}."
-            )
         messages = _normalize_messages(prompt)
         generator_input = (
             messages

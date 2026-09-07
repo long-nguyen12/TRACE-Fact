@@ -1,9 +1,8 @@
 """Claim-to-evidence consistency analysis with grounded evidence references."""
 
-import json
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from .llm import parse_json_output
+from .model_output import generate_json, json_text
 from .prompt import CONSISTENCY_SYSTEM, CONSISTENCY_USER, render_prompt
 
 
@@ -13,30 +12,16 @@ _STATUSES = {"support", "contradict", "unknown"}
 def _as_items(value: Any) -> List[Any]:
     if isinstance(value, list):
         return value
-    if isinstance(value, tuple):
-        return list(value)
     if isinstance(value, dict):
         return [value]
     return []
 
 
-def _payload(item: Any) -> Dict[str, Any]:
-    if not isinstance(item, dict):
-        return {}
-    analysis = item.get("analysis")
-    if isinstance(analysis, dict):
-        return analysis
-    return item
-
-
 def _container_id(item: Any, prefix: str, index: int) -> str:
     if isinstance(item, dict):
-        for key in ("evidence_id", "id"):
-            value = item.get(key)
-            if isinstance(value, str):
-                candidate = value.strip()
-                if candidate.startswith(prefix) and candidate[len(prefix) :].isdigit():
-                    return candidate
+        candidate = str(item.get("evidence_id", "")).strip()
+        if candidate.startswith(prefix) and candidate[len(prefix) :].isdigit():
+            return candidate
     return f"{prefix}{index}"
 
 
@@ -106,10 +91,12 @@ def _collect_text_facts(text_analysis: Any) -> List[Dict[str, str]]:
     facts: List[Dict[str, str]] = []
     used_ids: Set[str] = set()
     for index, item in enumerate(_as_items(text_analysis), start=1):
+        if not isinstance(item, dict):
+            continue
         container_id = _container_id(item, "T", index)
         facts.extend(
             _normalize_leaf_items(
-                _payload(item).get("facts"), container_id, "F", used_ids
+                item.get("facts"), container_id, "F", used_ids
             )
         )
     return facts
@@ -122,22 +109,23 @@ def _collect_image_evidence(
     inferences: List[Dict[str, str]] = []
     used_ids: Set[str] = set()
     for index, item in enumerate(_as_items(image_analysis), start=1):
+        if not isinstance(item, dict):
+            continue
         container_id = _container_id(item, "I", index)
-        analysis = _payload(item)
         observations.extend(
             _normalize_leaf_items(
-                analysis.get("observations"), container_id, "O", used_ids
+                item.get("observations"), container_id, "O", used_ids
             )
         )
         # VLM-transcribed image text is directly observed visual evidence too.
         observations.extend(
             _normalize_leaf_items(
-                analysis.get("text"), container_id, "TXT", used_ids
+                item.get("text"), container_id, "TXT", used_ids
             )
         )
         inferences.extend(
             _normalize_leaf_items(
-                analysis.get("inferences"), container_id, "INF", used_ids
+                item.get("inferences"), container_id, "INF", used_ids
             )
         )
     return observations, inferences
@@ -319,21 +307,14 @@ class ConsistencyChecker:
         prompt = render_prompt(
             CONSISTENCY_SYSTEM,
             CONSISTENCY_USER,
-            CLAIM_COMPONENTS_JSON=json.dumps(
-                atoms, ensure_ascii=False, indent=2
-            ),
-            IMAGE_EVIDENCE_JSON=json.dumps(
-                image_evidence, ensure_ascii=False, indent=2
-            ),
-            TEXT_EVIDENCE_JSON=json.dumps(
-                facts, ensure_ascii=False, indent=2
-            ),
+            CLAIM_COMPONENTS_JSON=json_text(atoms),
+            IMAGE_EVIDENCE_JSON=json_text(image_evidence),
+            TEXT_EVIDENCE_JSON=json_text(facts),
         )
-        try:
-            raw_output = self.llm.generate(prompt)
-            result["raw_output"] = raw_output
-        except Exception as exc:
-            errors.append(f"Model generation failed: {type(exc).__name__}: {exc}")
+        parsed = generate_json(
+            result, self.llm.generate, prompt, allow_array=True
+        )
+        if parsed is None:
             result["comparisons"] = _normalize_comparisons(
                 [],
                 atoms,
@@ -343,16 +324,6 @@ class ConsistencyChecker:
                 "Consistency analysis was unavailable.",
             )
             return result
-
-        try:
-            parsed = parse_json_output(
-                raw_output, allow_top_level_array=True
-            )
-        except (TypeError, ValueError) as exc:
-            errors.append(
-                f"Model output could not be parsed: {type(exc).__name__}: {exc}"
-            )
-            parsed = {}
 
         comparisons = (
             parsed if isinstance(parsed, list) else parsed.get("comparisons")

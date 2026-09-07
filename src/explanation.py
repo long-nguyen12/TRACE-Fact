@@ -1,6 +1,5 @@
 """Generation of concise explanations grounded in supplied evidence identifiers."""
 
-import json
 from typing import Any, Dict, List, Set
 
 from .fact_checker import (
@@ -9,7 +8,7 @@ from .fact_checker import (
     _normalize_label,
     _normalize_reasoning,
 )
-from .llm import parse_json_output
+from .model_output import generate_json, json_text
 from .prompt import EXPLANATION_SYSTEM, EXPLANATION_USER, render_prompt
 
 
@@ -87,39 +86,15 @@ class ExplanationGenerator:
         prompt = render_prompt(
             EXPLANATION_SYSTEM,
             EXPLANATION_USER,
-            PREDICTION_JSON=json.dumps(
-                normalized_prediction, ensure_ascii=False, indent=2
-            ),
-            CLAIM_COMPONENTS_JSON=json.dumps(
-                model_input["claim_components"], ensure_ascii=False, indent=2
-            ),
-            IMAGE_EVIDENCE_JSON=json.dumps(
-                image_evidence, ensure_ascii=False, indent=2
-            ),
-            TEXT_EVIDENCE_JSON=json.dumps(
-                model_input["text_facts"], ensure_ascii=False, indent=2
-            ),
-            PROVENANCE_FACTS_JSON=json.dumps(
-                provenance_evidence, ensure_ascii=False, indent=2
-            ),
-            CONSISTENCY_COMPARISONS_JSON=json.dumps(
-                model_input["consistency"], ensure_ascii=False, indent=2
-            ),
+            PREDICTION_JSON=json_text(normalized_prediction),
+            CLAIM_COMPONENTS_JSON=json_text(model_input["claim_components"]),
+            IMAGE_EVIDENCE_JSON=json_text(image_evidence),
+            TEXT_EVIDENCE_JSON=json_text(model_input["text_facts"]),
+            PROVENANCE_FACTS_JSON=json_text(provenance_evidence),
+            CONSISTENCY_COMPARISONS_JSON=json_text(model_input["consistency"]),
         )
-
-        try:
-            raw_output = self.llm.generate(prompt)
-            result["raw_output"] = raw_output
-        except Exception as exc:
-            errors.append(f"Model generation failed: {type(exc).__name__}: {exc}")
-            return result
-
-        try:
-            parsed = parse_json_output(raw_output)
-        except (TypeError, ValueError) as exc:
-            errors.append(
-                f"Model output could not be parsed: {type(exc).__name__}: {exc}"
-            )
+        parsed = generate_json(result, self.llm.generate, prompt)
+        if parsed is None:
             return result
 
         explanation = parsed.get("explanation")

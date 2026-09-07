@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List
 
-from .llm import parse_json_output
+from .model_output import generate_json, string_list
 from .prompt import IMAGE_ANALYSIS_SYSTEM, IMAGE_ANALYSIS_USER, render_prompt
 
 
@@ -24,17 +24,8 @@ class ImageAnalyzer:
         errors: List[str] = result["errors"]
 
         prompt = render_prompt(IMAGE_ANALYSIS_SYSTEM, IMAGE_ANALYSIS_USER)
-        try:
-            raw_output = self.vlm.generate(image, prompt)
-            result["raw_output"] = raw_output
-        except Exception as exc:
-            errors.append(f"Model generation failed: {type(exc).__name__}: {exc}")
-            return result
-
-        try:
-            parsed = parse_json_output(raw_output)
-        except (TypeError, ValueError) as exc:
-            errors.append(f"Model output could not be parsed: {type(exc).__name__}: {exc}")
+        parsed = generate_json(result, self.vlm.generate, image, prompt)
+        if parsed is None:
             return result
 
         description = parsed.get("description")
@@ -44,7 +35,7 @@ class ImageAnalyzer:
             errors.append("Model output field 'description' must be a string.")
 
         for field in ("objects", "text", "observations", "inferences"):
-            result[field] = self._normalize_strings(parsed.get(field), field, errors)
+            result[field] = string_list(parsed.get(field), field, errors)
 
         relations = parsed.get("relations", [])
         if not isinstance(relations, list):
@@ -63,21 +54,3 @@ class ImageAnalyzer:
                 result["relations"].append([part.strip() for part in relation])
 
         return result
-
-    @staticmethod
-    def _normalize_strings(value: Any, field: str, errors: List[str]) -> List[str]:
-        if not isinstance(value, list):
-            errors.append(f"Model output field '{field}' must be a list.")
-            return []
-
-        normalized: List[str] = []
-        for index, item in enumerate(value):
-            if not isinstance(item, str) or not item.strip():
-                errors.append(
-                    f"Model output field '{field}' at index {index} must be a non-empty string."
-                )
-                continue
-            item = item.strip()
-            if item not in normalized:
-                normalized.append(item)
-        return normalized

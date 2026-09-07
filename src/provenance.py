@@ -1,7 +1,6 @@
 """Reverse-image search, bounded web crawling, and provenance extraction."""
 
 import ipaddress
-import json
 import re
 import socket
 from html.parser import HTMLParser
@@ -11,7 +10,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.robotparser import RobotFileParser
 
-from .llm import parse_json_output
+from .model_output import generate_json, json_text
 from .prompt import PROVENANCE_SYSTEM, PROVENANCE_USER, render_prompt
 
 
@@ -423,18 +422,10 @@ class ProvenanceRetriever:
         prompt = render_prompt(
             PROVENANCE_SYSTEM,
             PROVENANCE_USER,
-            PROVENANCE_INPUT_JSON=json.dumps(
-                model_input, ensure_ascii=False, indent=2
-            ),
+            PROVENANCE_INPUT_JSON=json_text(model_input),
         )
-        try:
-            raw_output = self.llm.generate(prompt)
-            result["raw_output"] = raw_output
-            parsed = parse_json_output(raw_output)
-        except Exception as exc:
-            errors.append(
-                "Provenance extraction failed: %s: %s" % (type(exc).__name__, exc)
-            )
+        parsed = generate_json(result, self.llm.generate, prompt)
+        if parsed is None:
             return result
 
         for field in ("first_seen", "location", "event"):

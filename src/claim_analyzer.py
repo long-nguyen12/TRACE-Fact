@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List
 
-from .llm import parse_json_output
+from .model_output import generate_json, string_list
 from .prompt import CLAIM_ANALYSIS_SYSTEM, CLAIM_ANALYSIS_USER, render_prompt
 
 
@@ -29,17 +29,8 @@ class ClaimAnalyzer:
             CLAIM_ANALYSIS_USER,
             CLAIM_TEXT=claim,
         )
-        try:
-            raw_output = self.llm.generate(prompt)
-            result["raw_output"] = raw_output
-        except Exception as exc:
-            errors.append(f"Model generation failed: {type(exc).__name__}: {exc}")
-            return result
-
-        try:
-            parsed = parse_json_output(raw_output)
-        except (TypeError, ValueError) as exc:
-            errors.append(f"Model output could not be parsed: {type(exc).__name__}: {exc}")
+        parsed = generate_json(result, self.llm.generate, prompt)
+        if parsed is None:
             return result
 
         atoms = parsed.get("atoms")
@@ -60,25 +51,5 @@ class ClaimAnalyzer:
                     {"id": f"C{len(result['atoms']) + 1}", "text": text.strip()}
                 )
 
-        result["entities"] = self._normalize_strings(
-            parsed.get("entities"), "entities", errors
-        )
+        result["entities"] = string_list(parsed.get("entities"), "entities", errors)
         return result
-
-    @staticmethod
-    def _normalize_strings(value: Any, field: str, errors: List[str]) -> List[str]:
-        if not isinstance(value, list):
-            errors.append(f"Model output field '{field}' must be a list.")
-            return []
-
-        normalized: List[str] = []
-        for index, item in enumerate(value):
-            if not isinstance(item, str) or not item.strip():
-                errors.append(
-                    f"Model output field '{field}' at index {index} must be a non-empty string."
-                )
-                continue
-            item = item.strip()
-            if item not in normalized:
-                normalized.append(item)
-        return normalized

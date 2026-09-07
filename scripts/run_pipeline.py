@@ -45,7 +45,7 @@ def _build_pipeline() -> FactCheckingPipeline:
             base_url=config.DEEPSEEK_BASE_URL,
             max_tokens=config.DEEPSEEK_MAX_TOKENS,
         )
-    else:
+    elif backend == "huggingface":
         llm = LLM(
             config.LLM_MODEL,
             device_map=config.HF_DEVICE_MAP,
@@ -53,6 +53,19 @@ def _build_pipeline() -> FactCheckingPipeline:
             max_new_tokens=config.HF_MAX_NEW_TOKENS,
             local_files_only=config.HF_LOCAL_FILES_ONLY,
         )
+    else:
+        raise ValueError("LLM_BACKEND must be 'huggingface' or 'deepseek'")
+
+    if not config.USE_TEXT and not config.USE_IMAGE:
+        raise ValueError("At least one of USE_TEXT or USE_IMAGE must be enabled")
+    if config.USE_PROVENANCE and not config.USE_IMAGE:
+        raise ValueError("USE_PROVENANCE requires USE_IMAGE = True")
+    if (
+        config.USE_PROVENANCE
+        and str(config.PROVENANCE_PROVIDER).lower() != "google_vision"
+    ):
+        raise ValueError("PROVENANCE_PROVIDER must be 'google_vision'")
+
     vlm = None
     if config.USE_IMAGE:
         vlm = VLM(
@@ -119,39 +132,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    backend = str(config.LLM_BACKEND).strip().lower()
-    if backend not in {"huggingface", "deepseek"}:
-        parser.error("LLM_BACKEND must be 'huggingface' or 'deepseek'")
-    if backend == "huggingface" and not str(config.LLM_MODEL).strip():
-        parser.error("set LLM_MODEL in config.py to a model ID or local directory")
-    if backend == "deepseek" and not str(config.DEEPSEEK_MODEL).strip():
-        parser.error("set DEEPSEEK_MODEL in config.py")
-    if backend == "deepseek":
-        try:
-            deepseek_api_key = load_deepseek_api_key()
-        except RuntimeError as exc:
-            parser.error(str(exc))
-        if not deepseek_api_key:
-            parser.error(
-                "set DEEPSEEK_API_KEY in the project .env file or environment"
-            )
-    if config.USE_IMAGE and not str(config.VLM_MODEL).strip():
-        parser.error(
-            "set VLM_MODEL in config.py to a model ID or local directory, "
-            "or set USE_IMAGE = False"
-        )
-    if not config.USE_TEXT and not config.USE_IMAGE:
-        parser.error("at least one of USE_TEXT or USE_IMAGE must be enabled")
-    if config.USE_PROVENANCE and not config.USE_IMAGE:
-        parser.error("USE_PROVENANCE requires USE_IMAGE = True")
-    if (
-        config.USE_PROVENANCE
-        and str(config.PROVENANCE_PROVIDER).lower() != "google_vision"
-    ):
-        parser.error("PROVENANCE_PROVIDER must be 'google_vision'")
-
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    pipeline = _build_pipeline()
+    try:
+        pipeline = _build_pipeline()
+    except (RuntimeError, TypeError, ValueError) as exc:
+        parser.error(str(exc))
     samples = pipeline.dataset.load_split(args.split, limit=args.limit)
     for sample in samples:
         result = pipeline.run(sample)
